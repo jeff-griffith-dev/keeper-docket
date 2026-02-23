@@ -11,7 +11,7 @@ and how fast.
 
 ## Status
 🏗️ Infrastructure setup and archaeology phase. Follow along:  
-📝 [Blog series — link when live]
+📝 [Keeper-Docket](https://kdblog.jeff-griffith.dev/)
 
 ## What's Here Now
 - `/docs/00-archaeology` — Analysis of the 4Minitz codebase
