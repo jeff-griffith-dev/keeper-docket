@@ -30,7 +30,7 @@ Targeted at organizations that need platform independence: mixed environments, c
 |---|---|---|
 | Language | C# / .NET 9 | Python 3.12 |
 | Bot interface | Azure Bot Framework → Teams | Slack Bolt SDK |
-| AI extraction | Azure OpenAI + Semantic Kernel | OpenAI API / Ollama (swappable) |
+| AI orchestration | Microsoft Agent Framework (see ADR-004) | OpenAI API / Ollama (swappable) |
 | Database | Azure SQL + Entity Framework Core | PostgreSQL |
 | Scheduling/reminders | Azure Durable Functions | Celery + Redis |
 | Deployment | Azure Container Apps | Docker Compose |
@@ -73,4 +73,4 @@ Rejected at this time. Two is enough to prove the claim without diluting the imp
 
 ## Amendments
 
-*None yet.*
+**2026-02-22** — AI layer updated from "Azure OpenAI + Semantic Kernel" to "Microsoft Agent Framework" following research into current Microsoft AI tooling positioning. Semantic Kernel reference moved to [ADR-004](ADR-004-ai-orchestration.md) where the tradeoff is documented in full.
