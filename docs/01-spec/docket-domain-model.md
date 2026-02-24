@@ -78,6 +78,7 @@ meeting program. A Professional Services engagement maps to one MeetingSeries.
 | `name` | VARCHAR(255) | NOT NULL | e.g. "UX Team Review" |
 | `project` | VARCHAR(255) | NULLABLE | Grouping label, not a foreign key |
 | `status` | ENUM | NOT NULL, DEFAULT `active` | `active` or `archived` |
+| `externalCalendarId` | VARCHAR(500) | NULLABLE | Outlook/Google Calendar series ID |
 | `createdBy` | UUID | FK → User NOT NULL | Series moderator (initial) |
 | `createdAt` | TIMESTAMP | NOT NULL | |
 | `updatedAt` | TIMESTAMP | NOT NULL | |
@@ -92,10 +93,11 @@ Transition to `archived` is one-way. An archived series is read-only: no new Min
 can be created, no existing records can be edited. The series and all its history
 remain queryable indefinitely.
 
-**Design note:** `project` is a plain string, not a foreign key to a Project entity.
-This is intentional. Introducing a Project entity adds join complexity without
-providing value at this stage. If Docket ever needs project-level aggregation across
-series, a Project entity can be introduced then. For now, project is a tag.
+**Design note:** `project` is a plain string tag in v1, not a foreign key to a Project entity. It serves as both a display grouping and the migration path to a future `Engagement` entity: when engagement-level grouping is introduced in v2, series with matching `project` strings can be grouped without a schema redesign. See ADR-005.
+
+**Design note:** `externalCalendarId` stores the Outlook or Google Calendar series ID for the corresponding calendar event. Unused in v1 beyond storage. In v2, Keeper will use this field to propose engagement groupings based on shared organizers and overlapping participants. See ADR-005.
+
+**Design note:** A `MeetingSeries` maps to a single calendar series — the unit attached to a recurring Outlook or Google Calendar event. A Professional Services engagement typically involves multiple parallel series. Engagement-level grouping across series is deferred to v2. See ADR-005.
 
 **4Minitz gap addressed:** 4Minitz had no archive state. Docket adds it explicitly
 so completed engagements can be retired without deletion.
