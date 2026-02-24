@@ -1,0 +1,2071 @@
+openapi: 3.1.0
+
+info:
+  title: Docket API
+  version: 0.1.0
+  description: |
+    Docket is a structured commitment record for meeting accountability.
+    It stores the chain of custody for every action item from the meeting
+    in which it was created to the meeting in which it was resolved.
+
+    ## Core Concepts
+
+    A **MeetingSeries** corresponds to a single calendar series — the recurring
+    event you create in Outlook or Google Calendar. One series, one participant
+    list, one chain of Minutes.
+
+    **Minutes** are the complete record of a single meeting instance: the planned
+    agenda, the actual attendees, the discussion, and the resulting commitments.
+    A Minutes record exists before the meeting (as a plan) and after it (as a
+    record). Finalization is the irreversible transition from plan to record.
+
+    **Topics** are the agenda items within a Minutes. Recurring topics carry
+    forward automatically to the next meeting if unresolved.
+
+    **ActionItems** are commitments — something a named person agreed to do by
+    a specific date. They are the core unit of value. Every ActionItem has a
+    single owner, a chronological note log, and a full provenance chain if it
+    was carried forward from a prior meeting.
+
+    ## State Machines
+
+    - `MeetingSeries.status`: `active` → `archived` (one-way)
+    - `Minutes.status`: `draft` → `finalized` (one-way, irreversible)
+    - `ActionItem.status`: `open` ↔ `deferred`, `open` → `done` (done is terminal)
+
+    ## Immutability Rules
+
+    Finalized Minutes are immutable. No writes are accepted to a Minutes record
+    or any of its children (Topics, InfoItems, ActionItems, Notes) after
+    finalization. Archived series are read-only — no new Minutes can be created
+    and no existing records can be edited.
+
+    ActionItem notes are append-only. There is no PUT or PATCH on notes.
+
+    ## Authentication
+
+    All endpoints require a Bearer token. The authenticated user is referred to
+    as the **caller** in endpoint descriptions. Authorization is role-based at
+    the series level — a user's permissions are determined by their
+    SeriesParticipant role, not a global role.
+
+    Authentication implementation details are stack-specific and outside the
+    scope of this specification.
+
+  contact:
+    name: Jeff Griffith
+    url: https://jeff-griffith.dev
+  license:
+    name: MIT
+
+servers:
+  - url: https://api.docket.example.com/v1
+    description: Production
+  - url: http://localhost:8000/v1
+    description: Local development
+
+tags:
+  - name: users
+    description: User identity and cross-series views
+  - name: series
+    description: MeetingSeries lifecycle and participants
+  - name: minutes
+    description: Meeting instances, finalization, and attendees
+  - name: topics
+    description: Agenda items within a Minutes
+  - name: info-items
+    description: Discussion notes within a Topic
+  - name: action-items
+    description: Commitments with owner, due date, and note history
+  - name: labels
+    description: System and custom classification tags
+
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # USERS
+  # ---------------------------------------------------------------------------
+
+  /users:
+    post:
+      tags: [users]
+      operationId: createUser
+      summary: Create a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users/{userId}:
+    get:
+      tags: [users]
+      operationId: getUser
+      summary: Get a user by ID
+      parameters:
+        - $ref: '#/components/parameters/userId'
+      responses:
+        '200':
+          description: User record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [users]
+      operationId: updateUser
+      summary: Update display name or external ID
+      description: Callers may only update their own record unless they are a system caller.
+      parameters:
+        - $ref: '#/components/parameters/userId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdate'
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{userId}/open-items:
+    get:
+      tags: [users]
+      operationId: getUserOpenItems
+      summary: Get all open action items owned by a user across all series
+      description: |
+        Returns every ActionItem where `responsibleId` matches the given user
+        and `status` is `open`. Results span all MeetingSeries the user
+        participates in. This is the primary cross-series personal accountability
+        view — equivalent to "My Action Items" in 4Minitz.
+
+        Results are ordered by `dueDate` ascending (nulls last), then by
+        `priority` ascending.
+      parameters:
+        - $ref: '#/components/parameters/userId'
+        - name: seriesId
+          in: query
+          description: Filter to a specific MeetingSeries
+          schema:
+            type: string
+            format: uuid
+        - name: project
+          in: query
+          description: Filter by MeetingSeries project tag
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of open action items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ActionItemSummary'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # SERIES
+  # ---------------------------------------------------------------------------
+
+  /series:
+    get:
+      tags: [series]
+      operationId: listSeries
+      summary: List all series the caller participates in
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, archived]
+          description: Filter by series status. Defaults to active only.
+        - name: project
+          in: query
+          schema:
+            type: string
+          description: Filter by project tag
+      responses:
+        '200':
+          description: Series list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MeetingSeries'
+    post:
+      tags: [series]
+      operationId: createSeries
+      summary: Create a new MeetingSeries
+      description: |
+        The caller becomes the initial moderator. A SeriesParticipant record
+        with role `moderator` is created automatically.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingSeriesCreate'
+      responses:
+        '201':
+          description: Series created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingSeries'
+
+  /series/{seriesId}:
+    get:
+      tags: [series]
+      operationId: getSeries
+      summary: Get a MeetingSeries by ID
+      parameters:
+        - $ref: '#/components/parameters/seriesId'
+      responses:
+        '200':
+          description: Series record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingSeries'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [series]
+      operationId: updateSeries
+      summary: Update series name, project tag, or external calendar ID
+      description: Only the series moderator may update a series.
+      parameters:
+        - $ref: '#/components/parameters/seriesId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingSeriesUpdate'
+      responses:
+        '200':
+          description: Updated series
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingSeries'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /series/{seriesId}/archive:
+    post:
+      tags: [series]
+      operationId: archiveSeries
+      summary: Archive a MeetingSeries
+      description: |
+        Transitions the series from `active` to `archived`. This is irreversible.
+        An archived series is read-only: no new Minutes can be created and no
+        existing records can be modified. All history remains queryable.
+
+        Only the series moderator may archive a series.
+      parameters:
+        - $ref: '#/components/parameters/seriesId'
+      responses:
+        '200':
+          description: Archived series
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingSeries'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Series is already archived
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /series/{seriesId}/participants:
+    get:
+      tags: [series]
+      operationId: listParticipants
+      summary: List all participants in a series
+      parameters:
+        - $ref: '#/components/parameters/seriesId'
+      responses:
+        '200':
+          description: Participant list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SeriesParticipant'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [series]
+      operationId: addParticipant
+      summary: Add a participant to a series
+      description: Only the series moderator may add participants.
+      parameters:
+        - $ref: '#/components/parameters/seriesId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ParticipantAdd'
+      responses:
+        '201':
+          description: Participant added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeriesParticipant'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: User is already a participant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /series/{seriesId}/participants/{userId}:
+    patch:
+      tags: [series]
+      operationId: updateParticipantRole
+      summary: Change a participant's role
+      description: |
+        Only the series moderator may change roles. Transferring the `moderator`
+        role to another user demotes the caller to `invited`. There must always
+        be exactly one moderator per series.
+      parameters:
+        - $ref: '#/components/parameters/seriesId'
+        - $ref: '#/components/parameters/userId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ParticipantRoleUpdate'
+      responses:
+        '200':
+          description: Updated participant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeriesParticipant'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Invalid role transition (e.g. removing the only moderator)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [series]
+      operationId: removeParticipant
+      summary: Remove a participant from a series
+      description: |
+        Only the series moderator may remove participants. The moderator cannot
+        remove themselves while they are the only moderator.
+      parameters:
+        - $ref: '#/components/parameters/seriesId'
+        - $ref: '#/components/parameters/userId'
+      responses:
+        '204':
+          description: Participant removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Cannot remove the only moderator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /series/{seriesId}/minutes:
+    get:
+      tags: [series]
+      operationId: listMinutes
+      summary: List all Minutes for a series in chain order
+      description: |
+        Returns Minutes in linked-list order (oldest first), not by date sort.
+        The chain is traversed via `previousMinutesId`. Draft and finalized
+        Minutes are both returned unless filtered.
+      parameters:
+        - $ref: '#/components/parameters/seriesId'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, finalized]
+          description: Filter by Minutes status
+      responses:
+        '200':
+          description: Minutes list in chain order
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MinutesSummary'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+
+  # ---------------------------------------------------------------------------
+  # MINUTES
+  # ---------------------------------------------------------------------------
+
+  /minutes:
+    post:
+      tags: [minutes]
+      operationId: createMinutes
+      summary: Create a new Minutes for a series
+      description: |
+        Creates a draft Minutes record. The caller must be a `moderator` of the
+        target series.
+
+        On creation, the system:
+        1. Sets `previousMinutesId` to the most recent existing Minutes in the
+           series (if any).
+        2. Carries forward all `recurring` Topics from the most recent finalized
+           Minutes where `isOpen = true`, creating new Topic records with
+           `sourceTopicId` pointing to the originating topic.
+        3. Carries forward open ActionItems on those topics similarly, with
+           `sourceActionItemId` set and the original item's status set to
+           `deferred`.
+        4. If the previous Minutes had a pinned `globalNote`, copies that text
+           into the new Minutes' `globalNote`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MinutesCreate'
+      responses:
+        '201':
+          description: Draft Minutes created with carried-forward topics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Minutes'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: Series is archived
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /minutes/{minutesId}:
+    get:
+      tags: [minutes]
+      operationId: getMinutes
+      summary: Get a Minutes record with all topics and items
+      parameters:
+        - $ref: '#/components/parameters/minutesId'
+      responses:
+        '200':
+          description: Full Minutes record including topics, info items, and action items
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Minutes'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [minutes]
+      operationId: updateMinutes
+      summary: Update a draft Minutes record
+      description: |
+        Update `scheduledFor`, `globalNote`, or `globalNotePinned`. Only allowed
+        while `status` is `draft`. Moderators and invited participants may update.
+      parameters:
+        - $ref: '#/components/parameters/minutesId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MinutesUpdate'
+      responses:
+        '200':
+          description: Updated Minutes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Minutes'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Minutes is already finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [minutes]
+      operationId: deleteMinutes
+      summary: Delete a draft Minutes record
+      description: |
+        Only draft Minutes may be deleted. Finalized Minutes cannot be deleted.
+        Only the series moderator may delete Minutes.
+      parameters:
+        - $ref: '#/components/parameters/minutesId'
+      responses:
+        '204':
+          description: Deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Minutes is finalized and cannot be deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /minutes/{minutesId}/finalize:
+    post:
+      tags: [minutes]
+      operationId: finalizeMinutes
+      summary: Finalize a Minutes record
+      description: |
+        Transitions Minutes from `draft` to `finalized`. This is irreversible.
+        After finalization, the Minutes and all its children are immutable.
+
+        The system increments `version` to 1 (or higher if re-finalization is
+        ever supported), sets `finalizedAt` and `finalizedBy`.
+
+        If `notifyResponsibles` is true, each ActionItem owner receives an
+        individual email listing their assigned items and full note history.
+
+        If `notifyAll` is true, all series participants (moderator, invited,
+        and informed) receive the full minutes email.
+
+        Only the series moderator may finalize.
+      parameters:
+        - $ref: '#/components/parameters/minutesId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinalizeRequest'
+      responses:
+        '200':
+          description: Finalized Minutes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Minutes'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Already finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /minutes/{minutesId}/attendees:
+    get:
+      tags: [minutes]
+      operationId: listAttendees
+      summary: List attendees for a Minutes
+      parameters:
+        - $ref: '#/components/parameters/minutesId'
+      responses:
+        '200':
+          description: Attendee list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MinutesAttendee'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [minutes]
+      operationId: addAttendee
+      summary: Record that a participant attended this meeting
+      description: |
+        Only valid while Minutes is in `draft` status. The userId must be a
+        `moderator` or `invited` SeriesParticipant. `Informed` participants
+        are never recorded as attendees.
+      parameters:
+        - $ref: '#/components/parameters/minutesId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Attendee recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MinutesAttendee'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: User already recorded as attendee
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Minutes is finalized or user is not an eligible participant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /minutes/{minutesId}/attendees/{userId}:
+    delete:
+      tags: [minutes]
+      operationId: removeAttendee
+      summary: Remove an attendance record
+      description: Only valid while Minutes is in `draft` status.
+      parameters:
+        - $ref: '#/components/parameters/minutesId'
+        - $ref: '#/components/parameters/userId'
+      responses:
+        '204':
+          description: Removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Minutes is finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ---------------------------------------------------------------------------
+  # TOPICS
+  # ---------------------------------------------------------------------------
+
+  /minutes/{minutesId}/topics:
+    get:
+      tags: [topics]
+      operationId: listTopics
+      summary: List all topics in a Minutes
+      parameters:
+        - $ref: '#/components/parameters/minutesId'
+        - name: includeOpen
+          in: query
+          schema:
+            type: boolean
+            default: true
+        - name: includeClosed
+          in: query
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: Topics in sort order
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Topic'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [topics]
+      operationId: createTopic
+      summary: Add a topic to a draft Minutes
+      description: |
+        Moderators and invited participants may add topics. Only valid while
+        the Minutes is in `draft` status.
+      parameters:
+        - $ref: '#/components/parameters/minutesId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TopicCreate'
+      responses:
+        '201':
+          description: Topic created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topic'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: Minutes is finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /topics/{topicId}:
+    get:
+      tags: [topics]
+      operationId: getTopic
+      summary: Get a topic with its info items and action items
+      parameters:
+        - $ref: '#/components/parameters/topicId'
+      responses:
+        '200':
+          description: Topic with children
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topic'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [topics]
+      operationId: updateTopic
+      summary: Update a topic
+      description: Only valid while the parent Minutes is in `draft` status.
+      parameters:
+        - $ref: '#/components/parameters/topicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TopicUpdate'
+      responses:
+        '200':
+          description: Updated topic
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topic'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Parent Minutes is finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [topics]
+      operationId: deleteTopic
+      summary: Delete a topic
+      description: |
+        Only valid while the parent Minutes is in `draft` status. Deleting a
+        carried-forward topic does not affect the source topic in the prior
+        Minutes.
+      parameters:
+        - $ref: '#/components/parameters/topicId'
+      responses:
+        '204':
+          description: Deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Parent Minutes is finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ---------------------------------------------------------------------------
+  # INFO ITEMS
+  # ---------------------------------------------------------------------------
+
+  /topics/{topicId}/info-items:
+    post:
+      tags: [info-items]
+      operationId: createInfoItem
+      summary: Add a discussion note to a topic
+      description: Only valid while the parent Minutes is in `draft` status.
+      parameters:
+        - $ref: '#/components/parameters/topicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InfoItemCreate'
+      responses:
+        '201':
+          description: InfoItem created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InfoItem'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: Parent Minutes is finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /info-items/{infoItemId}:
+    patch:
+      tags: [info-items]
+      operationId: updateInfoItem
+      summary: Update an info item
+      description: Only valid while the parent Minutes is in `draft` status.
+      parameters:
+        - $ref: '#/components/parameters/infoItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InfoItemUpdate'
+      responses:
+        '200':
+          description: Updated info item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InfoItem'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Parent Minutes is finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [info-items]
+      operationId: deleteInfoItem
+      summary: Delete an info item
+      description: Only valid while the parent Minutes is in `draft` status.
+      parameters:
+        - $ref: '#/components/parameters/infoItemId'
+      responses:
+        '204':
+          description: Deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Parent Minutes is finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ---------------------------------------------------------------------------
+  # ACTION ITEMS
+  # ---------------------------------------------------------------------------
+
+  /topics/{topicId}/action-items:
+    post:
+      tags: [action-items]
+      operationId: createActionItem
+      summary: Create an action item on a topic
+      description: |
+        The `responsibleId` must be a `moderator` or `invited` participant in
+        the parent series. `Informed` participants cannot own action items.
+
+        If the responsible user was not present at this meeting (not in
+        MinutesAttendees), the system automatically sets `assignedInAbsentia`
+        to `true`. This flag can also be set explicitly in the request body.
+
+        Only valid while the parent Minutes is in `draft` status.
+      parameters:
+        - $ref: '#/components/parameters/topicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionItemCreate'
+      responses:
+        '201':
+          description: Action item created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionItem'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: |
+            Parent Minutes is finalized, or responsible user is not an eligible
+            participant (e.g. informed-only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /action-items/{actionItemId}:
+    get:
+      tags: [action-items]
+      operationId: getActionItem
+      summary: Get an action item with its full note history
+      parameters:
+        - $ref: '#/components/parameters/actionItemId'
+      responses:
+        '200':
+          description: Action item with notes and labels
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionItem'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [action-items]
+      operationId: updateActionItem
+      summary: Update an action item
+      description: |
+        Title, dueDate, priority, and status may be updated. Status transitions
+        must follow the state machine: `open` → `done`, `open` ↔ `deferred`.
+        `done` is terminal.
+
+        Only valid while the parent Minutes is in `draft` status. After
+        finalization the record is immutable.
+      parameters:
+        - $ref: '#/components/parameters/actionItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionItemUpdate'
+      responses:
+        '200':
+          description: Updated action item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionItem'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Parent Minutes is finalized or invalid status transition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /action-items/{actionItemId}/history:
+    get:
+      tags: [action-items]
+      operationId: getActionItemHistory
+      summary: Get the full carry-forward chain for an action item
+      description: |
+        Traverses the `sourceActionItemId` chain from the given item back to
+        the original. Returns all versions of the item in chronological order
+        (oldest first), each with its own note history, allowing reconstruction
+        of the complete commitment timeline across meetings.
+      parameters:
+        - $ref: '#/components/parameters/actionItemId'
+      responses:
+        '200':
+          description: Ordered list of action item versions from original to current
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ActionItem'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /action-items/{actionItemId}/notes:
+    post:
+      tags: [action-items]
+      operationId: appendNote
+      summary: Append a note to an action item
+      description: |
+        Notes are append-only. There is no PUT or PATCH on notes. The timestamp
+        is set by the server at the moment of creation and is immutable.
+
+        Notes may be appended to action items in both draft and finalized Minutes.
+        The server sets `phase` automatically:
+
+        - If the parent Minutes is `draft`, the note receives `phase: meeting`.
+        - If the parent Minutes is `finalized`, the note receives `phase: post-meeting`.
+
+        Callers cannot set or override `phase`. This guarantees that the
+        `meeting`-phase note set is permanently closed at finalization — no
+        retroactive addition to the meeting record is possible. Post-meeting
+        notes are clearly distinct, allowing Keeper to add follow-up context
+        (reminders sent, status updates, new requirements) without corrupting
+        the original meeting record.
+      parameters:
+        - $ref: '#/components/parameters/actionItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteCreate'
+      responses:
+        '201':
+          description: Note appended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionItemNote'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /action-items/{actionItemId}/labels:
+    post:
+      tags: [action-items]
+      operationId: addLabelToActionItem
+      summary: Apply a label to an action item
+      description: Only valid while the parent Minutes is in `draft` status.
+      parameters:
+        - $ref: '#/components/parameters/actionItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [labelId]
+              properties:
+                labelId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Label applied
+        '409':
+          description: Label already applied to this item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Parent Minutes is finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /action-items/{actionItemId}/labels/{labelId}:
+    delete:
+      tags: [action-items]
+      operationId: removeLabelFromActionItem
+      summary: Remove a label from an action item
+      description: Only valid while the parent Minutes is in `draft` status.
+      parameters:
+        - $ref: '#/components/parameters/actionItemId'
+        - name: labelId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Label removed
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Parent Minutes is finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ---------------------------------------------------------------------------
+  # LABELS
+  # ---------------------------------------------------------------------------
+
+  /labels:
+    get:
+      tags: [labels]
+      operationId: listLabels
+      summary: List all available labels
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [action, status]
+      responses:
+        '200':
+          description: Label list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Label'
+    post:
+      tags: [labels]
+      operationId: createLabel
+      summary: Create a custom label
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabelCreate'
+      responses:
+        '201':
+          description: Label created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Label'
+        '409':
+          description: A label with this name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /labels/{labelId}:
+    delete:
+      tags: [labels]
+      operationId: deleteLabel
+      summary: Delete a custom label
+      description: "System labels (isSystem: true) cannot be deleted."
+      parameters:
+        - name: labelId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Cannot delete a system label
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+
+components:
+
+  parameters:
+    userId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    seriesId:
+      name: seriesId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    minutesId:
+      name: minutesId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    topicId:
+      name: topicId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    actionItemId:
+      name: actionItemId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    infoItemId:
+      name: infoItemId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Caller does not have permission for this operation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    UnprocessableEntity:
+      description: Request is well-formed but violates business rules
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+
+    # -------------------------------------------------------------------------
+    # SHARED / PRIMITIVES
+    # -------------------------------------------------------------------------
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code
+          example: MINUTES_FINALIZED
+        message:
+          type: string
+          description: Human-readable description
+          example: This Minutes record has been finalized and cannot be modified.
+        detail:
+          type: object
+          additionalProperties: true
+          description: Optional structured detail for programmatic handling
+
+    # -------------------------------------------------------------------------
+    # USER
+    # -------------------------------------------------------------------------
+
+    User:
+      type: object
+      required: [id, email, displayName, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        externalId:
+          type: string
+          nullable: true
+          description: Reserved for future identity federation (LDAP, Azure AD, OAuth)
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UserCreate:
+      type: object
+      required: [email, displayName]
+      properties:
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        externalId:
+          type: string
+          nullable: true
+
+    UserUpdate:
+      type: object
+      properties:
+        displayName:
+          type: string
+        externalId:
+          type: string
+          nullable: true
+
+    # -------------------------------------------------------------------------
+    # MEETING SERIES
+    # -------------------------------------------------------------------------
+
+    MeetingSeries:
+      type: object
+      required: [id, name, status, createdBy, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: UX Team Review
+        project:
+          type: string
+          nullable: true
+          description: |
+            Grouping tag. Plain string in v1. Migration path to a future
+            Engagement entity in v2. See ADR-005.
+          example: Contoso ERP Rollout
+        status:
+          type: string
+          enum: [active, archived]
+        externalCalendarId:
+          type: string
+          nullable: true
+          description: |
+            Outlook or Google Calendar series ID. Unused in v1 beyond storage.
+            In v2, Keeper will use this to propose engagement groupings. See ADR-005.
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    MeetingSeriesCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        project:
+          type: string
+          nullable: true
+        externalCalendarId:
+          type: string
+          nullable: true
+
+    MeetingSeriesUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        project:
+          type: string
+          nullable: true
+        externalCalendarId:
+          type: string
+          nullable: true
+
+    # -------------------------------------------------------------------------
+    # SERIES PARTICIPANT
+    # -------------------------------------------------------------------------
+
+    SeriesParticipant:
+      type: object
+      required: [id, seriesId, userId, role, addedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        seriesId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        user:
+          $ref: '#/components/schemas/User'
+          description: Expanded user record (included in responses, not required on write)
+        role:
+          type: string
+          enum: [moderator, invited, informed]
+          description: |
+            - `moderator`: Can create Minutes, add topics/items, own action items,
+              receive all emails. Exactly one per series.
+            - `invited`: Can add topics/items, own action items, receive all emails.
+            - `informed`: Receives finalized minutes only. Cannot own action items.
+        addedAt:
+          type: string
+          format: date-time
+
+    ParticipantAdd:
+      type: object
+      required: [userId, role]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [moderator, invited, informed]
+
+    ParticipantRoleUpdate:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [moderator, invited, informed]
+
+    # -------------------------------------------------------------------------
+    # MINUTES
+    # -------------------------------------------------------------------------
+
+    Minutes:
+      type: object
+      required: [id, seriesId, scheduledFor, status, version, globalNotePinned, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        seriesId:
+          type: string
+          format: uuid
+        previousMinutesId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Explicit linked-list pointer to the prior Minutes in this series
+        scheduledFor:
+          type: string
+          format: date-time
+          description: The planned (or actual) meeting date and time
+        status:
+          type: string
+          enum: [draft, finalized]
+        version:
+          type: integer
+          description: 0 while draft, incremented to 1 on first finalization
+        finalizedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finalizedBy:
+          type: string
+          format: uuid
+          nullable: true
+        globalNote:
+          type: string
+          nullable: true
+          description: Free-text note at the meeting level
+        globalNotePinned:
+          type: boolean
+          description: If true, this note is copied to the next Minutes on creation
+        topics:
+          type: array
+          items:
+            $ref: '#/components/schemas/Topic'
+          description: Included when fetching a full Minutes record
+        attendees:
+          type: array
+          items:
+            $ref: '#/components/schemas/MinutesAttendee'
+          description: Included when fetching a full Minutes record
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    MinutesSummary:
+      type: object
+      description: Lightweight Minutes representation for list views
+      required: [id, seriesId, scheduledFor, status, version, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        seriesId:
+          type: string
+          format: uuid
+        previousMinutesId:
+          type: string
+          format: uuid
+          nullable: true
+        scheduledFor:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [draft, finalized]
+        version:
+          type: integer
+        finalizedAt:
+          type: string
+          format: date-time
+          nullable: true
+        openTopicCount:
+          type: integer
+          description: Number of open topics at time of response
+        openActionItemCount:
+          type: integer
+          description: Number of open action items at time of response
+        createdAt:
+          type: string
+          format: date-time
+
+    MinutesCreate:
+      type: object
+      required: [seriesId, scheduledFor]
+      properties:
+        seriesId:
+          type: string
+          format: uuid
+        scheduledFor:
+          type: string
+          format: date-time
+        globalNote:
+          type: string
+          nullable: true
+
+    MinutesUpdate:
+      type: object
+      properties:
+        scheduledFor:
+          type: string
+          format: date-time
+        globalNote:
+          type: string
+          nullable: true
+        globalNotePinned:
+          type: boolean
+
+    FinalizeRequest:
+      type: object
+      required: [notifyResponsibles, notifyAll]
+      properties:
+        notifyResponsibles:
+          type: boolean
+          description: |
+            If true, each action item owner receives an individual email listing
+            their assigned items with full note history.
+        notifyAll:
+          type: boolean
+          description: |
+            If true, all series participants (moderator, invited, and informed)
+            receive the full finalized minutes email.
+
+    MinutesAttendee:
+      type: object
+      required: [minutesId, userId]
+      properties:
+        minutesId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        user:
+          $ref: '#/components/schemas/User'
+
+    # -------------------------------------------------------------------------
+    # TOPIC
+    # -------------------------------------------------------------------------
+
+    Topic:
+      type: object
+      required: [id, minutesId, title, type, isOpen, isSkipped, sortOrder, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        minutesId:
+          type: string
+          format: uuid
+        sourceTopicId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            If this topic was carried forward from a prior Minutes, this points
+            to the originating Topic record.
+        title:
+          type: string
+        type:
+          type: string
+          enum: [recurring, adhoc]
+          description: |
+            - `recurring`: Carries forward automatically to the next Minutes if
+              `isOpen` is true at the time the next Minutes is created.
+            - `adhoc`: Exists only in the Minutes it was created on.
+        isOpen:
+          type: boolean
+          description: false = resolved and closed
+        isSkipped:
+          type: boolean
+          description: |
+            true = explicitly skipped this meeting, carries forward without
+            discussion. isSkipped implies isOpen — a closed topic cannot be skipped.
+        sortOrder:
+          type: integer
+        responsibleId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Topic-level owner, distinct from individual ActionItem owners
+        labels:
+          type: array
+          items:
+            $ref: '#/components/schemas/Label'
+        infoItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/InfoItem'
+        actionItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActionItem'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TopicCreate:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        type:
+          type: string
+          enum: [recurring, adhoc]
+          default: adhoc
+        responsibleId:
+          type: string
+          format: uuid
+          nullable: true
+        sortOrder:
+          type: integer
+
+    TopicUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        type:
+          type: string
+          enum: [recurring, adhoc]
+        isOpen:
+          type: boolean
+        isSkipped:
+          type: boolean
+        responsibleId:
+          type: string
+          format: uuid
+          nullable: true
+        sortOrder:
+          type: integer
+
+    # -------------------------------------------------------------------------
+    # INFO ITEM
+    # -------------------------------------------------------------------------
+
+    InfoItem:
+      type: object
+      required: [id, topicId, text, createdBy, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        topicId:
+          type: string
+          format: uuid
+        text:
+          type: string
+        pinnedDate:
+          type: string
+          format: date
+          nullable: true
+          description: If set, rendered as a dated bullet in the finalized minutes output
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    InfoItemCreate:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+        pinnedDate:
+          type: string
+          format: date
+          nullable: true
+
+    InfoItemUpdate:
+      type: object
+      properties:
+        text:
+          type: string
+        pinnedDate:
+          type: string
+          format: date
+          nullable: true
+
+    # -------------------------------------------------------------------------
+    # ACTION ITEM
+    # -------------------------------------------------------------------------
+
+    ActionItem:
+      type: object
+      required: [id, topicId, title, responsibleId, priority, status, isRecurring, assignedInAbsentia, createdBy, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        topicId:
+          type: string
+          format: uuid
+        sourceActionItemId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            If this item was carried forward from a prior meeting, points to
+            the item it was created from. Use GET /action-items/{id}/history
+            to traverse the full chain.
+        title:
+          type: string
+          description: The commitment, stated plainly
+          example: Update the integration test suite to cover the new auth flow
+        responsibleId:
+          type: string
+          format: uuid
+          description: Single owner. Must be a moderator or invited participant in the parent series.
+        responsible:
+          $ref: '#/components/schemas/User'
+          description: Expanded in responses
+        dueDate:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: |
+            1 = Critical, 2 = High, 3 = Medium (default), 4 = Low, 5 = Minimal
+        status:
+          type: string
+          enum: [open, done, deferred]
+          description: |
+            - `open`: Active commitment
+            - `done`: Completed. Terminal — cannot be reopened.
+            - `deferred`: Intentionally postponed. Can return to `open`.
+        isRecurring:
+          type: boolean
+          description: If true and status is `open` at finalization, carries forward to the next Minutes
+        assignedInAbsentia:
+          type: boolean
+          description: |
+            True if the responsible user was not present at this meeting.
+            Does not change behavior — assignment in absentia is permitted.
+            Surfaced in notification emails and Keeper follow-ups for context.
+        labels:
+          type: array
+          items:
+            $ref: '#/components/schemas/Label'
+        notes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActionItemNote'
+          description: Chronological note log, oldest first
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ActionItemSummary:
+      type: object
+      description: Lightweight representation for cross-series list views
+      required: [id, title, responsibleId, priority, status, seriesId, seriesName, minutesId, topicTitle, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        responsibleId:
+          type: string
+          format: uuid
+        dueDate:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 5
+        status:
+          type: string
+          enum: [open, done, deferred]
+        assignedInAbsentia:
+          type: boolean
+        seriesId:
+          type: string
+          format: uuid
+        seriesName:
+          type: string
+          description: Denormalized for display convenience in cross-series views
+        minutesId:
+          type: string
+          format: uuid
+        topicTitle:
+          type: string
+          description: Denormalized for display convenience
+        labels:
+          type: array
+          items:
+            $ref: '#/components/schemas/Label'
+        createdAt:
+          type: string
+          format: date-time
+
+    ActionItemCreate:
+      type: object
+      required: [title, responsibleId]
+      properties:
+        title:
+          type: string
+        responsibleId:
+          type: string
+          format: uuid
+        dueDate:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 5
+          default: 3
+        isRecurring:
+          type: boolean
+          default: false
+        assignedInAbsentia:
+          type: boolean
+          description: |
+            If omitted, the system derives this from MinutesAttendee records.
+            Can be set explicitly by Keeper when the extraction agent has
+            determined the owner was absent.
+
+    ActionItemUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        dueDate:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 5
+        status:
+          type: string
+          enum: [open, done, deferred]
+        isRecurring:
+          type: boolean
+
+    # -------------------------------------------------------------------------
+    # ACTION ITEM NOTE
+    # -------------------------------------------------------------------------
+
+    ActionItemNote:
+      type: object
+      required: [id, actionItemId, text, phase, authorId, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        actionItemId:
+          type: string
+          format: uuid
+        text:
+          type: string
+        phase:
+          type: string
+          enum: [meeting, post-meeting]
+          description: |
+            Set by the server. Never supplied by the caller.
+
+            - `meeting`: Created while the parent Minutes was in `draft` status.
+              This is the closed set — once the Minutes is finalized, no new
+              `meeting`-phase notes can be added. Rendered in the finalization
+              email. Represents what was known at the meeting.
+            - `post-meeting`: Created after the parent Minutes was finalized.
+              Represents additional context that arrived after the record closed:
+              a discovered dependency, a revised requirement, a Keeper follow-up.
+              Visible in the full item view but structurally distinct from the
+              meeting record.
+        authorId:
+          type: string
+          format: uuid
+        author:
+          $ref: '#/components/schemas/User'
+        createdAt:
+          type: string
+          format: date-time
+          description: |
+            Set by the server at creation. Immutable. The timestamp is part of
+            the meaning of the note — it records when this was said about this
+            commitment.
+
+    NoteCreate:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          description: |
+            The note text. The `phase` field is not accepted here — it is set
+            by the server based on the parent Minutes status at the time of the
+            request. Callers cannot declare their own phase.
+
+            For Keeper-generated notes, include provenance context in the text:
+            "Extracted from transcript — Jeff confirmed he will handle the API
+            migration by end of sprint."
+
+    # -------------------------------------------------------------------------
+    # LABEL
+    # -------------------------------------------------------------------------
+
+    Label:
+      type: object
+      required: [id, name, category, isSystem, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Decision
+        category:
+          type: string
+          enum: [action, status]
+          description: |
+            - `action`: Classifies the type of commitment (Decision, Proposal, New)
+            - `status`: Traffic-light health indicator (Status:GREEN, Status:YELLOW, Status:RED)
+        color:
+          type: string
+          nullable: true
+          pattern: '^#[0-9A-Fa-f]{6}$'
+          description: Hex color for UI rendering
+          example: '#2E7D32'
+        isSystem:
+          type: boolean
+          description: System labels are seeded on install and cannot be deleted
+        createdAt:
+          type: string
+          format: date-time
+
+    LabelCreate:
+      type: object
+      required: [name, category]
+      properties:
+        name:
+          type: string
+        category:
+          type: string
+          enum: [action, status]
+        color:
+          type: string
+          nullable: true
+          pattern: '^#[0-9A-Fa-f]{6}$'
+
