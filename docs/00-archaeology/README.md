@@ -54,9 +54,11 @@ This is not an obvious design. Many tools flatten this into a task list with a "
 
 Topics could be marked to carry forward to the next meeting if unresolved. This is subtle but powerful — it means the tool has memory between meetings, not just within them. An unresolved issue from three meetings ago is still visible. Nothing gets dropped by accident.
 
-### Labels
+### Labels — Many-to-Many, Not an Enum
 
-Topics could be labeled with types: `#Decision`, `#Action`, `#Info`, `#Risk`. The `#Risk` label in particular is underappreciated — in Professional Services, flagging something as a risk during a meeting and having that flag persist in the record is meaningful for project health tracking.
+Topics can carry multiple labels simultaneously — a single ActionItem can be tagged `Decision`, `Proposal`, and `New` at the same time. Labels are not mutually exclusive. This has a direct impact on the Docket schema: the label relationship must be many-to-many, not a single enum field on the ActionItem record. A label table with a junction table to ActionItems is the correct model.
+
+Labels observed in the running system: `Decision`, `Proposal`, `Routine`, `New`, `Status:GREEN`, `Status:RED`. The Status labels are particularly interesting — they appear to be topic-level health indicators separate from the item-level completion status.
 
 ### Email Distribution
 
@@ -110,12 +112,53 @@ Screenshots and data model diagrams derived from the running instance will be ad
 
 ## Open Questions from Archaeology
 
-These are questions raised by the 4Minitz codebase that need answers before the Docket spec can be finalized:
+- [x] **How does 4Minitz handle a commitment made about someone who wasn't in the meeting?**  
+  Answered by screenshots. 4Minitz allows action items to be assigned to any participant registered in the MeetingSeries, regardless of attendance at a specific meeting instance. The system records non-attendance and flags the item — it does not prevent assignment. Robert Ballard was assigned an action item in a meeting he didn't attend; the system noted his absence and the item carried forward. Docket must support the same behavior: owner presence at a specific meeting is irrelevant to ownership of an action item.
 
-- [ ] How does 4Minitz handle a commitment made *about* someone who wasn't in the meeting? (i.e., "Jeff will handle that" said by someone who is not Jeff)
 - [ ] What happens to action items when a MeetingSeries is archived or closed?
-- [ ] How does the recurring topic carry-forward actually work — is it a copy or a reference?
-- [ ] What is the data model for participants vs. action item owners? Are they the same entity?
+
+- [x] **How does the recurring topic carry-forward actually work?**  
+  Answered by screenshots. Topics carry forward by reference with new notes appended chronologically. The original action item remains the same record — new detail entries are added beneath it, each dated. It is not a copy. The history of the item is visible in a single view spanning multiple meetings. Docket's ActionItem history endpoint (`GET /items/{id}/history`) must return the full chronological note chain, not just status changes.
+
+- [x] **What is the data model for participants vs. action item owners? Are they the same entity?**  
+  Answered by screenshots. Participants are registered users of the system. There are three roles within a MeetingSeries: `Moderator` (meeting chair, owns the series), `Invited` (active participants, expected to attend, can own action items), and `Informed` (receive minutes, not expected to attend or own items). Action item owners are drawn from Invited participants. The Informed role maps to Docket's distribution list — people who receive the record but don't carry accountability.
+
+---
+
+## Screenshot Inventory
+
+All screenshots captured from the live Docker instance on 2026-02-23. Files go in `/docs/00-archaeology/screenshots/`.
+
+| Filename | Content | Key Finding |
+|---|---|---|
+| `001-0-RegisterAccount.jpg` | Account registration screen | User identity model: username, display name, email |
+| `001-1-MainView001.jpg` | Main view — Meetings tab | Top-level: MeetingSeries list with last-minutes date and finalization status |
+| `001-1-MainViewActionItems.jpg` | Main view — My Action Items tab | Cross-series personal dashboard; the source for Keeper's morning briefing |
+| `002-CreateMeetingSeries.jpg` | Edit Meeting Series dialog | Three participant roles confirmed: Moderator, Invited, Informed |
+| `003-CreateMeetingMinutes0202Meeting.jpg` | Draft minutes — first meeting | SEND AGENDA + FINALIZE MINUTES + DELETE MINUTES controls visible |
+| `003-CreateMeetingMinutes0202Meeting002.jpg` | Draft minutes with topics expanded | InfoItem vs ActionItem distinction visible; Status:RED on absent participant's topic |
+| `003-CreateMeetingMinutes0202MeetingFinalized.jpg` | Finalized minutes | "Version 1. Finalized on [timestamp] by [user]" — versioned, attributed, fields locked |
+| `004-FollowupMeeting.jpg` | Second meeting — draft | Carry-forward confirmed: prior action item visible with new notes appended chronologically |
+| `004-FollowupMeetingFinalized.jpg` | Second meeting — finalized | "Previous: 2026-02-02" link — meetings are explicitly chained, not just dated |
+| `005-TopicDetails.jpg` | Topic detail view | Multi-label confirmed: Decision + Proposal + New on same item; finalized-on reference shown |
+
+---
+
+## Key Findings from Running the System
+
+These are discoveries made by actually running 4Minitz that were not visible from reading the codebase description alone.
+
+**The Informed role is a distribution list, not a participant role.** Informed users receive minutes but have no attendance expectation and cannot own action items. This directly maps to Docket's post-meeting distribution concept — some people need the record without being accountable to it.
+
+**Action items can be assigned to absent participants.** The system does not prevent this. It records the absence and flags it, but the assignment stands. This is correct behavior for Professional Services: "Jeff will handle that" is a commitment regardless of whether Jeff was in the room. Keeper's extraction agent must not filter out commitments about people who weren't present — it must flag them for review.
+
+**The "My Action Items" view crosses meeting series boundaries.** This is the view that makes the tool personally useful rather than just organizationally useful. A user can see everything they've committed to across all their meeting series in one place. Docket needs `GET /owner/{id}/open-items` as a first-class endpoint, not an afterthought.
+
+**Labels are many-to-many.** A single action item carried three labels simultaneously in the screenshots. The Docket schema must use a junction table, not an enum column.
+
+**Minutes are explicitly chained.** The follow-up meeting shows "Previous: 2026-02-02" as a navigable link. This isn't just sorting by date — it's an explicit linked-list structure between meeting instances within a series. The chain of custody runs not just up the hierarchy (Item → Topic → Minutes → Series) but also laterally across time (Minutes[n] → Minutes[n-1]).
+
+**The note that will become a blog moment:** While testing carry-forward behavior, the following was entered as a meeting note in the live system: *"Discussion on open items like assigning actions to users who aren't present (Robert wasn't happy)."* This note — added to investigate an edge case — is now part of the finalized, immutable record of the archaeology session. It will appear in the blog post as the moment the tool demonstrated its own value proposition on the project documenting it.
 
 ---
 
@@ -125,10 +168,11 @@ These are questions raised by the 4Minitz codebase that need answers before the 
 - [x] Analyzed cause of death (framework entropy + no LLM + maintainer bandwidth)
 - [x] Documented data model hierarchy
 - [x] Identified what to preserve and what to replace
-- [ ] Clone and run locally
-- [ ] Screenshot the UI for blog post reference
+- [x] Clone and run locally via Docker
+- [x] Screenshot the UI — 10 screenshots captured
+- [x] Answer open questions (3 of 4 resolved from screenshots)
+- [ ] Confirm behavior when MeetingSeries is archived or closed
 - [ ] Diagram the full data model from source code
-- [ ] Answer open questions above
 - [ ] Extract feature list for `/docs/01-spec/`
 
 ---
