@@ -22,6 +22,8 @@ bld/
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
+[Pp]ublish/
+
 
 # .NET Core
 project.lock.json
@@ -52,3 +54,23 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+## .NET / Visual Studio
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+TestResults/
+
+## EF Core SQLite dev database
+src/Docket.Api/*.db
+src/Docket.Api/*.db-shm
+src/Docket.Api/*.db-wal
+
+## Secrets
+appsettings.Production.json
+appsettings.Staging.json
+secrets.json
