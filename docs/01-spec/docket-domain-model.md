@@ -150,10 +150,13 @@ on a single date.
 | `seriesId` | UUID | FK → MeetingSeries NOT NULL | |
 | `previousMinutesId` | UUID | FK → Minutes NULLABLE | Explicit linked list |
 | `scheduledFor` | TIMESTAMP | NOT NULL | The meeting date/time |
-| `status` | ENUM | NOT NULL, DEFAULT `draft` | `draft` or `finalized` |
+| `status` | ENUM | NOT NULL, DEFAULT `draft` | `draft`, `finalized`, or `abandoned` |
 | `version` | INTEGER | NOT NULL, DEFAULT 0 | Incremented on finalization |
 | `finalizedAt` | TIMESTAMP | NULLABLE | Set on finalization |
 | `finalizedBy` | UUID | FK → User NULLABLE | |
+| `abandonedAt` | TIMESTAMP | NULLABLE | Set on abandonment |
+| `abandonedBy` | UUID | FK → User NULLABLE | |
+| `abandonmentNote` | TEXT | NULLABLE | Required when abandoning — the reason on record |
 | `globalNote` | TEXT | NULLABLE | Pinnable note; propagates to next Minutes if pinned |
 | `globalNotePinned` | BOOLEAN | NOT NULL, DEFAULT false | |
 | `createdAt` | TIMESTAMP | NOT NULL | |
@@ -163,16 +166,42 @@ on a single date.
 
 ```
 draft ──► finalized
+draft ──► abandoned  (moderator-initiated, requires abandonmentNote, permanent)
 ```
+
+Both `finalized` and `abandoned` are terminal. A Minutes record is never deleted —
+its existence tells a story even if that story is "this meeting was forgotten."
 
 Finalization is irreversible. A finalized Minutes record is immutable — no edits
 to any child Topic, InfoItem, or ActionItem are permitted after finalization.
 Immutability is enforced at the application layer.
 
+**Abandonment:** A draft Minutes is abandoned when the moderator explicitly
+acknowledges that it will never be finalized — the meeting was cancelled, created
+in error, or simply never followed up on. Abandonment requires a free-text
+`abandonmentNote`. Silence is not permitted: the reason must be on record.
+
+When a Minutes is abandoned, all `open` and `deferred` ActionItems beneath it
+are automatically set to `abandoned` by the system. These items are terminal —
+they cannot be reopened, updated, or reassigned. They exist as a permanent record
+of commitments that were made but never acted upon. If the underlying work still
+needs to happen, a new ActionItem must be created in a future Minutes, with
+`sourceActionItemId` pointing back to the abandoned item to preserve the lineage.
+
+**Pre-creation gate:** Before a new Minutes can be created for a series, the system
+traverses the full linked-list chain backwards from the current tail and checks for
+any nodes with `status = draft`. If any unresolved drafts are found anywhere in the
+chain, the creation is blocked with error code `UNRESOLVED_DRAFTS_EXIST`. The error
+response includes the IDs and scheduled dates of all orphaned drafts. The moderator
+must finalize or abandon every one of them before new Minutes can be created.
+
+This gate prevents orphaned draft records from accumulating silently and ensures
+the chain of custody is complete at every node.
+
 **Linked list:** `previousMinutesId` is a self-referencing foreign key forming an
 explicit chain. The chain is traversed (not date-filtered) when returning history.
 There is no guarantee that Minutes dates are contiguous — meetings are cancelled,
-rescheduled, skipped. The explicit link is the authoritative chain of custody.
+rescheduled, or abandoned. The explicit link is the authoritative chain of custody.
 
 **Version:** Starts at 0 (draft). Set to 1 on first finalization. The finalization
 dialog in 4Minitz showed `V1` — this is that field. Reserved for potential
@@ -281,7 +310,7 @@ of value in Docket.
 | `responsibleId` | UUID | FK → User NOT NULL | Single owner |
 | `dueDate` | DATE | NULLABLE | Target completion date |
 | `priority` | INTEGER | NOT NULL, DEFAULT 3 | 1 (highest) to 5 (lowest) |
-| `status` | ENUM | NOT NULL, DEFAULT `open` | `open`, `done`, `deferred` |
+| `status` | ENUM | NOT NULL, DEFAULT `open` | `open`, `done`, `deferred`, `abandoned` |
 | `isRecurring` | BOOLEAN | NOT NULL, DEFAULT false | Carries forward if open at finalization |
 | `sourceActionItemId` | UUID | FK → ActionItem NULLABLE | Carry-forward provenance |
 | `assignedInAbsentia` | BOOLEAN | NOT NULL, DEFAULT false | Owner was not present |
@@ -293,13 +322,29 @@ of value in Docket.
 
 ```
 open ──► done
-open ──► deferred
-deferred ──► open
+open ──► abandoned   (system-set only — never caller-settable)
+open ◄──► deferred
+deferred ──► abandoned   (system-set only)
 ```
 
-`done` is terminal. A completed action item cannot be reopened — if the work needs
-to be redone, a new ActionItem is created. `deferred` means intentionally postponed;
-it can return to `open`.
+`done` and `abandoned` are both terminal. A completed item cannot be reopened.
+An abandoned item cannot be reopened, updated, or reassigned — it is a permanent
+record of a commitment that was never fulfilled.
+
+`abandoned` is set exclusively by the system in two scenarios:
+1. The parent Minutes is abandoned — all `open` and `deferred` items beneath it
+   are set to `abandoned` atomically with the Minutes transition.
+2. The parent MeetingSeries is archived — all `open` and `deferred` items across
+   all Minutes in the series are set to `abandoned`.
+
+No caller can set an ActionItem to `abandoned` directly. This preserves the
+integrity of the record: abandonment is a fact about what happened to the
+containing context, not a decision made about the item itself.
+
+`deferred` means intentionally postponed; it can return to `open` while the
+parent Minutes remains draft. A deferred item at Minutes abandonment or series
+archival becomes `abandoned` for the same reason as an open item — the context
+that would have resolved it no longer exists.
 
 **Priority:** 1-5 integer, displayed as "1 - Critical", "2 - High", "3 - Medium",
 "4 - Low", "5 - Minimal". Default is 3 (Medium), matching 4Minitz behavior.
@@ -432,16 +477,23 @@ labels independently of their ActionItems.
 ## State Machines Summary
 
 ```
-MeetingSeries.status:   active ──────────────────► archived
+MeetingSeries.status:   active ──────────────────────────────────────► archived
 
-Minutes.status:         draft ───────────────────► finalized
+Minutes.status:         draft ───────────────────────────────────────► finalized
+                        draft ───────────────────────────────────────► abandoned (requires note)
 
-ActionItem.status:      open ────────────────────► done
-                        open ◄───────────────────► deferred
+ActionItem.status:      open ────────────────────────────────────────► done
+                        open ◄──────────────────────────────────────► deferred
+                        open ────────────────────────────────────────► abandoned (system-set)
+                        deferred ────────────────────────────────────► abandoned (system-set)
 ```
 
 No other state transitions exist. Any API operation that would violate these
 transitions must be rejected with HTTP 422.
+
+System-set transitions (`abandoned` on ActionItem) are not directly callable
+by API clients. They fire atomically as a side effect of Minutes abandonment
+or MeetingSeries archival.
 
 ---
 
@@ -450,11 +502,15 @@ transitions must be rejected with HTTP 422.
 1. A MeetingSeries must have exactly one `moderator` SeriesParticipant at all times.
 2. `ActionItem.responsibleId` must be a `moderator` or `invited` participant in the parent series.
 3. Finalized Minutes are immutable — no writes to Minutes, Topic, InfoItem, or ActionItem beneath a finalized Minutes. ActionItemNotes may still be appended after finalization, but only as `post-meeting` phase. The `meeting`-phase note set is permanently closed at finalization.
-4. Archived MeetingSeries are read-only — no new Minutes, no edits to any existing record.
-5. ActionItemNotes are append-only — no updates or deletes.
-6. Labels marked `isSystem = true` cannot be deleted.
-7. `Minutes.previousMinutesId` must reference a Minutes in the same MeetingSeries.
-8. A User can hold only one role per MeetingSeries (`SeriesParticipant` unique constraint on `(seriesId, userId)`).
+4. Abandoned Minutes are immutable. No writes to any record beneath an abandoned Minutes are permitted after abandonment, except post-meeting ActionItemNote appends.
+5. Archived MeetingSeries are read-only — no new Minutes, no edits to any existing record.
+6. ActionItemNotes are append-only — no updates or deletes.
+7. Labels marked `isSystem = true` cannot be deleted.
+8. `Minutes.previousMinutesId` must reference a Minutes in the same MeetingSeries.
+9. A User can hold only one role per MeetingSeries (`SeriesParticipant` unique constraint on `(seriesId, userId)`).
+10. A new Minutes cannot be created for a series while any draft Minutes exists anywhere in the chain (`UNRESOLVED_DRAFTS_EXIST`).
+11. `abandonmentNote` is required when transitioning a Minutes to `abandoned`. An empty or null note is rejected.
+12. ActionItem `abandoned` status is system-set only. No caller may set an ActionItem to `abandoned` directly.
 
 ---
 
