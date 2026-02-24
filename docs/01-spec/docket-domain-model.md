@@ -218,6 +218,7 @@ An agenda item within a Minutes instance. Topics are the unit of carry-forward.
 | `type` | ENUM | NOT NULL, DEFAULT `adhoc` | `recurring` or `adhoc` |
 | `isOpen` | BOOLEAN | NOT NULL, DEFAULT true | false = resolved |
 | `isSkipped` | BOOLEAN | NOT NULL, DEFAULT false | true = carried without discussion |
+| `sourceTopicId` | UUID | FK → Topic NULLABLE | Carry-forward provenance |
 | `sortOrder` | INTEGER | NOT NULL | Display ordering within Minutes |
 | `responsibleId` | UUID | FK → User NULLABLE | Topic-level owner (not item-level) |
 | `createdAt` | TIMESTAMP | NOT NULL | |
@@ -331,6 +332,7 @@ are never deleted or edited — append-only.
 | `id` | UUID | PK | |
 | `actionItemId` | UUID | FK → ActionItem NOT NULL | |
 | `text` | TEXT | NOT NULL | |
+| `phase` | ENUM | NOT NULL | `meeting` or `post-meeting` — set by server, never by caller |
 | `authorId` | UUID | FK → User NOT NULL | |
 | `createdAt` | TIMESTAMP | NOT NULL | Immutable — the timestamp is the record |
 
@@ -338,9 +340,31 @@ are never deleted or edited — append-only.
 is part of the meaning — "on this date, this was said about this commitment."
 Editing a note would corrupt the audit trail.
 
-The finalization email renders the complete note log at the moment of finalization.
-Keeper appends notes automatically (e.g., "2026-02-24: Extracted from transcript —
-Jeff confirmed he would handle the API migration by end of sprint").
+**Phase:** The server sets `phase` automatically based on the parent Minutes'
+status at the moment the note is created:
+
+- `meeting` — created while the parent Minutes is in `draft` status (i.e., before
+  or at finalization). This is the closed set. Once the Minutes is finalized, no
+  new `meeting`-phase notes can ever be added to any ActionItem beneath it.
+- `post-meeting` — created after the parent Minutes is `finalized`. Represents
+  additional context that arrived after the meeting record was closed: a discovered
+  dependency, a revised requirement, a follow-up from Keeper.
+
+**Finalization snapshot:** At the moment of finalization, the system locks the
+`meeting`-phase note set permanently. The finalization email renders only
+`meeting`-phase notes — it is a faithful snapshot of what was known at the meeting,
+not a living document. Post-meeting notes accumulate in the full item view but are
+visually and structurally distinct from the meeting record.
+
+**The boundary this creates:** "What did we know when we made this commitment?" has
+a structural answer — all notes where `phase = meeting`. No timestamp arithmetic
+required by consumers. Keeper's follow-up notes are always `post-meeting` because
+Keeper acts after finalization; this is automatic, not a convention that can drift.
+
+Keeper appends notes automatically (e.g., "Extracted from transcript — Jeff
+confirmed he would handle the API migration by end of sprint" — phase: `meeting`)
+and during follow-up (e.g., "Follow-up 2026-03-03: Item overdue, reminder sent
+to Jeff Griffith" — phase: `post-meeting`).
 
 ---
 
@@ -425,7 +449,7 @@ transitions must be rejected with HTTP 422.
 
 1. A MeetingSeries must have exactly one `moderator` SeriesParticipant at all times.
 2. `ActionItem.responsibleId` must be a `moderator` or `invited` participant in the parent series.
-3. Finalized Minutes are immutable — no writes to Minutes, Topic, InfoItem, ActionItem, or ActionItemNote beneath a finalized Minutes.
+3. Finalized Minutes are immutable — no writes to Minutes, Topic, InfoItem, or ActionItem beneath a finalized Minutes. ActionItemNotes may still be appended after finalization, but only as `post-meeting` phase. The `meeting`-phase note set is permanently closed at finalization.
 4. Archived MeetingSeries are read-only — no new Minutes, no edits to any existing record.
 5. ActionItemNotes are append-only — no updates or deletes.
 6. Labels marked `isSystem = true` cannot be deleted.
