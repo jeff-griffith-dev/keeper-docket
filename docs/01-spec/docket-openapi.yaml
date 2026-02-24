@@ -297,6 +297,13 @@ paths:
         An archived series is read-only: no new Minutes can be created and no
         existing records can be modified. All history remains queryable.
 
+        Before archiving, the system checks for any draft Minutes in the series
+        chain. If any exist, the request is rejected with `UNRESOLVED_DRAFTS_EXIST`.
+        The moderator must finalize or abandon all draft Minutes before archiving.
+
+        On archival, all `open` and `deferred` ActionItems across all Minutes in
+        the series are atomically set to `abandoned`. This is irreversible.
+
         Only the series moderator may archive a series.
       parameters:
         - $ref: '#/components/parameters/seriesId'
@@ -443,7 +450,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [draft, finalized]
+            enum: [draft, finalized, abandoned]
           description: Filter by Minutes status
       responses:
         '200':
@@ -556,28 +563,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-    delete:
-      tags: [minutes]
-      operationId: deleteMinutes
-      summary: Delete a draft Minutes record
-      description: |
-        Only draft Minutes may be deleted. Finalized Minutes cannot be deleted.
-        Only the series moderator may delete Minutes.
-      parameters:
-        - $ref: '#/components/parameters/minutesId'
-      responses:
-        '204':
-          description: Deleted
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          description: Minutes is finalized and cannot be deleted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+    # NOTE: There is no DELETE endpoint for Minutes records.
+    # Minutes are never deleted. A draft Minutes that will not be finalized
+    # must be abandoned via POST /minutes/{minutesId}/abandon with a required
+    # note. The existence of the record is historically significant.
 
   /minutes/{minutesId}/finalize:
     post:
@@ -619,6 +608,51 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           description: Already finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /minutes/{minutesId}/abandon:
+    post:
+      tags: [minutes]
+      operationId: abandonMinutes
+      summary: Abandon a draft Minutes record
+      description: |
+        Transitions a draft Minutes to `abandoned`. This is irreversible.
+        Minutes are never deleted — abandonment is the only non-finalization
+        exit from draft status.
+
+        A non-empty `note` is required. The reason for abandonment must be
+        on record. "Meeting cancelled", "Created in error", or "Never followed
+        up — moderator was absent" are all valid reasons.
+
+        On abandonment, all `open` and `deferred` ActionItems beneath this
+        Minutes are atomically set to `abandoned` by the system. Abandoned
+        ActionItems are terminal and cannot be modified by any caller.
+
+        Only the series moderator may abandon a Minutes.
+      parameters:
+        - $ref: '#/components/parameters/minutesId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AbandonRequest'
+      responses:
+        '200':
+          description: Abandoned Minutes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Minutes'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Already finalized or abandoned, or note is empty
           content:
             application/json:
               schema:
@@ -1513,7 +1547,7 @@ components:
           description: The planned (or actual) meeting date and time
         status:
           type: string
-          enum: [draft, finalized]
+          enum: [draft, finalized, abandoned]
         version:
           type: integer
           description: 0 while draft, incremented to 1 on first finalization
@@ -1525,6 +1559,20 @@ components:
           type: string
           format: uuid
           nullable: true
+        abandonedAt:
+          type: string
+          format: date-time
+          nullable: true
+        abandonedBy:
+          type: string
+          format: uuid
+          nullable: true
+        abandonmentNote:
+          type: string
+          nullable: true
+          description: |
+            Required when status is `abandoned`. The moderator-provided reason
+            why this Minutes was never finalized. Permanent and immutable.
         globalNote:
           type: string
           nullable: true
@@ -1569,7 +1617,7 @@ components:
           format: date-time
         status:
           type: string
-          enum: [draft, finalized]
+          enum: [draft, finalized, abandoned]
         version:
           type: integer
         finalizedAt:
@@ -1611,6 +1659,19 @@ components:
           nullable: true
         globalNotePinned:
           type: boolean
+
+    AbandonRequest:
+      type: object
+      required: [note]
+      properties:
+        note:
+          type: string
+          minLength: 1
+          description: |
+            Required explanation for why this Minutes is being abandoned.
+            Must be non-empty. Becomes the permanent record of why this
+            meeting was never finalized. Examples: "Meeting cancelled",
+            "Created in error", "Never followed up — moderator was absent."
 
     FinalizeRequest:
       type: object
@@ -1837,11 +1898,13 @@ components:
             1 = Critical, 2 = High, 3 = Medium (default), 4 = Low, 5 = Minimal
         status:
           type: string
-          enum: [open, done, deferred]
+          enum: [open, done, deferred, abandoned]
           description: |
             - `open`: Active commitment
             - `done`: Completed. Terminal — cannot be reopened.
             - `deferred`: Intentionally postponed. Can return to `open`.
+            - `abandoned`: Never fulfilled — containing Minutes or MeetingSeries
+              was abandoned or archived. Terminal. System-set only.
         isRecurring:
           type: boolean
           description: If true and status is `open` at finalization, carries forward to the next Minutes
@@ -1893,7 +1956,7 @@ components:
           maximum: 5
         status:
           type: string
-          enum: [open, done, deferred]
+          enum: [open, done, deferred, abandoned]
         assignedInAbsentia:
           type: boolean
         seriesId:
@@ -1960,6 +2023,10 @@ components:
         status:
           type: string
           enum: [open, done, deferred]
+          description: |
+            Valid caller-initiated transitions: `open` → `done`, `open` ↔ `deferred`.
+            `abandoned` is not accepted — it is system-set only. Passing `abandoned`
+            returns HTTP 422 with error code `INVALID_STATUS_TRANSITION`.
         isRecurring:
           type: boolean
 
