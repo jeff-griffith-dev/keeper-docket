@@ -1,178 +1,250 @@
-# 4Minitz Archaeology Notes
+# 4Minitz Archaeology
 
-**Source project:** [github.com/4minitz/4minitz](https://github.com/4minitz/4minitz)  
-**Last meaningful activity:** ~2022  
-**Analyzed by:** Jeff Griffith  
-**Analysis date:** 2026-02-22  
-**Status:** In progress
+## What Is This?
 
----
+Before writing a single line of Keeper/Docket code, we ran a live instance of
+[4Minitz](https://github.com/4minitz/4minitz) in Docker and explored it systematically.
+4Minitz is the dead open-source meeting minutes tool from which Keeper/Docket is spiritually
+descended. The goal was to extract what they got right, identify what they missed,
+and avoid reinventing decisions they already made well.
 
-## What 4Minitz Was
-
-4Minitz was a collaborative meeting minutes web application. Its core purpose was structured meeting minutes: creating an agenda before a meeting, recording what was discussed and decided during it, assigning action items to specific people with due dates, and distributing the finalized minutes afterward.
-
-It was not a chat bot. It was not AI-powered. It was a disciplined web form with a good data model, email integration, and a real understanding of how meetings generate follow-on work.
-
-It had real users. It had Docker support. It had LDAP integration, which means organizations were running it internally. The GitHub issues include substantive feature discussions and bug reports from people who were depending on it. This was not a toy project.
+This directory contains screenshots, notes, and schema findings from that investigation.
+Every design decision in Docket that traces back to 4Minitz behavior is documented here
+so the reasoning is preserved.
 
 ---
 
-## What Killed It
+## Running 4Minitz Locally
 
-**The framework.** 4Minitz was built on Meteor.js, a full-stack isomorphic JavaScript framework that peaked in popularity around 2015-2016. By 2020, Meteor had lost the ecosystem momentum battle to React/Next.js, Vue, and server-side frameworks with better cloud-native stories. Maintaining a Meteor application required Meteor-specific knowledge that fewer developers had and fewer wanted to acquire.
+```bash
+docker pull 4minitz/4minitz
+docker run -d -p 3100:3100 4minitz/4minitz
+# open http://localhost:3100
+```
 
-**No LLM.** The hardest part of 4Minitz's workflow was manual data entry. Someone had to be the designated note-taker. Someone had to convert the conversation into structured action items. This is exactly the friction that kills adoption — the tool requires effort at the moment people have the least capacity for it (the end of a meeting). Without AI extraction, the tool only works for disciplined teams with dedicated minute-takers.
+The instance used for this archaeology was run on 2026-02-24.
 
-**Maintainer bandwidth.** The commit history shows a small, dedicated team — likely one or two primary maintainers — who did impressive work but eventually moved on. No new maintainers emerged. Issues accumulated. The last substantive commits trail off in 2022.
+---
+
+## Data Model (Extracted from Live Behavior)
+
+```
+MeetingSeries
+└── Minutes (one per meeting instance, explicitly chained as linked list)
+    └── Topic
+        ├── InfoItem  (discussion notes, status updates, decisions recorded)
+        └── ActionItem (commitment: who / what / by when)
+            ├── responsible (single owner, must be an Invited participant)
+            ├── duedate
+            ├── priority (1-5 numeric, displayed as e.g. "3 - Medium")
+            ├── labels[] (many-to-many — junction table, not enum)
+            └── notes[] (chronological, timestamped log entries)
+```
+
+### Participant Roles (Three-Tier Model)
+
+| Role | Attends | Can Own Action Items | Receives Minutes |
+|---|---|---|---|
+| Moderator | Yes | Yes | Yes |
+| Invited | Yes | Yes | Yes |
+| Informed | No | No | Yes |
+
+"Informed" participants receive the finalized minutes email but have no attendance
+expectation and cannot be assigned action items. This maps directly to a distribution
+list concept: stakeholders who need the record without being in the room.
+
+---
+
+## Key Behaviors Observed
+
+### Finalization
+
+Finalization is the terminal state transition for a set of Minutes. It is:
+
+- **Irreversible** — no edit or delete after finalization
+- **Versioned** — the finalized email header shows `2026-02-02 (V1)`, confirming explicit versioning
+- **Decoupled from notification** — the finalization dialog offers two independently toggleable checkboxes:
+  - "Send Action Items To Responsibles" (individual per-owner email)
+  - "Send Meeting Minutes (Information Items & Action Items)" (full minutes to all participants)
+
+  This matters: you can finalize without notifying, or choose which notifications to send.
+  Docket's `POST /minutes/{id}/finalize` should accept notification control flags.
+
+There is **no archive state** for a MeetingSeries. 4Minitz has no concept of closing or
+retiring a series — finalization applies only to individual Minutes. The series simply
+continues until deleted. This is a gap: **Docket must add `archived` as a first-class
+MeetingSeries state** so Professional Services engagements can be retired without
+deleting the commitment history.
+
+### Carry-Forward (Recurring Topics)
+
+Topics marked as recurring carry forward automatically to the next meeting's Minutes.
+Carry-forward is **by reference with appended notes**, not a copy — the same record
+accumulates a chronological note chain across multiple meetings. Full history is always
+visible.
+
+The visual treatment of a carried-forward item distinguishes:
+- **Open/unresolved** — teal/cyan background highlight, unchecked checkbox
+- **Completed** — gray background, checked checkbox with strikethrough in email output
+
+This visual distinction survives finalization and appears in the "My Action Items"
+dashboard post-finalization.
+
+### Skipped vs. Open Recurring Items
+
+A recurring topic can be explicitly skipped (carried to the next meeting without
+discussion) or left open (discussed but not resolved). Both states carry forward.
+The finalization dialog does not block on open recurring items — you can finalize
+with unresolved recurring topics present.
+
+### Absent Participant Assignment
+
+Action items can be assigned to participants who were not present at the meeting.
+The system records the absence but permits the assignment. The moderator adds a note
+explaining the assignment was made in absentia.
+
+**Keeper extraction agent implication:** Do not filter commitments about people who
+weren't in the meeting. "Jeff will handle that" is a valid extractable commitment
+regardless of Jeff's presence. Flag for review, but do not discard.
+
+### Labels Are Many-to-Many
+
+A single ActionItem or Topic can carry multiple labels simultaneously (observed:
+`Decision` + `Proposal` + `New` on one item; `Decision` alone on another).
+
+**Schema implication:** Docket needs a junction table (`ActionItemLabels`), not an
+enum column. Built-in label types observed: `Decision`, `Proposal`, `New`,
+`Status:GREEN`, `Status:YELLOW`, `Status:RED`. The status labels appear to function
+as a traffic-light health indicator for topics, distinct from the action-type labels.
+
+### Minutes Are a Linked List
+
+Individual Minutes instances are explicitly linked to their predecessor via a
+"Previous: YYYY-MM-DD" reference. This is not just date sorting — it is a
+formal linked-list structure. `GET /minutes/{id}/history` must traverse this chain,
+not just filter by date range.
+
+### Cross-Series Personal Dashboard
+
+"My Action Items" is a first-class view showing all open action items across all
+MeetingSeries for the logged-in user. This is not an optional reporting feature —
+it is the primary mechanism by which individual users track their own commitments.
+
+**API implication:** `GET /owner/{id}/open-items` is a first-class Docket endpoint,
+not a derived query.
+
+### Chronological Note Log on Action Items
+
+Each ActionItem carries a timestamped note log, displayed chronologically. Notes are
+appended over time as context accumulates. The finalization email renders the full
+log at the moment of finalization — the email is a snapshot of the complete
+commitment history, not just the current state.
+
+Example from the live session:
+> 2026-02-24: Ask Jeff Griffith to periodically review the email settings and
+> maintain documentation
+
+### Email Notifications
+
+Two email types confirmed from live observation:
+
+**Agenda Email** (sent before the meeting):
+- Meeting name, project, date
+- Invited participants
+- Agenda topics (may be empty if topics not yet added)
+- Links: Open Series, Open Minutes
+
+**Finalized Minutes Email** (sent on finalization):
+- Meeting name, project, date, version number
+- Participants / Absent / Informed (three separate fields)
+- Discussed Topics with nested Action Items
+- Completed action items rendered with **strikethrough**
+- Open Topics section (shows "None" if all resolved or skipped)
+- Links: Open Series, Open Minutes
+
+**Action Items Email** (sent to each responsible on finalization, if enabled):
+- One email per responsible, listing only their assigned items
+- Each item: Topic, Priority, Due Date, Responsible, Labels
+- Full chronological Details log for each item
+
+### Finalized Minutes Email as the Archival Record
+
+4Minitz has no export or archive feature. The finalized minutes email — combined with
+the linked "Open Minutes" deep link — functions as the de facto archival artifact.
+The email is suitable for PDF export (the only "archive copy" the system produces).
+Docket should generate a structured representation suitable for PDF/HTML export at
+finalization, since the email alone is fragile as a long-term record.
+
+---
+
+## Open Questions — All Resolved
+
+| Question | Answer |
+|---|---|
+| What happens when a MeetingSeries is archived? | No archive state exists. Series continues until deleted. **Docket must add this.** |
+| Can action items be assigned to absent participants? | Yes. Flagged in record, allowed by system. |
+| How does carry-forward work mechanically? | Reference with chronological note chain, not copy. |
+| What is the participant/owner model? | Three roles: Moderator, Invited (can own), Informed (cannot own). |
+
+---
+
+## Implications for Docket Schema
+
+Collected schema decisions driven by archaeology findings:
+
+1. **Labels**: Junction table (`ActionItemLabels`), not enum. Support system labels (Status:GREEN/YELLOW/RED) and action labels (Decision, Proposal) as distinct label types.
+2. **Notes**: Separate `ActionItemNote` entity with `(itemId, timestamp, text, authorId)`. Not a text blob.
+3. **Minutes chaining**: `Minutes.previousMinutesId` foreign key, not just a date field.
+4. **MeetingSeries state**: Add `status` enum: `active | archived`. Archived series are read-only but not deleted.
+5. **Participant roles**: `SeriesParticipant(seriesId, userId, role: moderator | invited | informed)`.
+6. **Owner constraint**: ActionItem `responsibleId` must reference an `invited` or `moderator` participant in the parent series.
+7. **Finalization versioning**: `Minutes.version` integer, incremented on each finalize (supports re-finalization after correction if we choose to allow it).
+8. **Notification flags**: `POST /minutes/{id}/finalize` body includes `{ notifyResponsibles: bool, notifyAll: bool }`.
+9. **Cross-series owner query**: `GET /owner/{userId}/open-items` as first-class endpoint.
+10. **Pre-meeting scheduling**: `Minutes.scheduledFor` timestamp to drive agenda email timing.
+
+---
+
+## Screenshots
+
+All screenshots are in `/docs/00-archaeology/screenshots/`.
+
+| File | What It Shows |
+|---|---|
+| `001-0-RegisterAccount.jpg` | Registration / first login |
+| `001-1-MainView001.jpg` | Main dashboard — Meetings tab |
+| `001-1-MainViewActionItems.jpg` | Main dashboard — My Action Items tab (cross-series view) |
+| `002-CreateMeetingSeries.jpg` | Creating a new MeetingSeries |
+| `003-CreateMeetingMinutes0202Meeting.jpg` | Creating Minutes for a meeting instance |
+| `003-CreateMeetingMinutes0202Meeting002.jpg` | Minutes with topics added |
+| `003-CreateMeetingMinutes0202MeetingFinalized.jpg` | Finalized Minutes view |
+| `004-FollowupMeeting.jpg` | Second meeting — recurring topics carried forward |
+| `004-FollowupMeetingFinalized.jpg` | Second meeting finalized |
+| `005-TopicDetails.jpg` | Topic detail — many-to-many labels visible |
+| `010-AgendaEmail.jpg` | Agenda email sent before the meeting |
+| `011-SkippedRecurringMeetingItem.jpg` | Open vs. completed carry-forward visual treatment (teal = open) |
+| `012-FinalizingMeetingSkippedRecurringItem.jpg` | Finalization dialog — decoupled notification checkboxes |
+| `013-FinalizedMinutesActionItems.jpg` | Action items email sent to responsible on finalization |
+| `014-FInalizedMinutesAgendaItems.jpg` | Full minutes email — strikethrough for done, version number, role breakdown |
+| `015-ActionItemsAfterFinalize.jpg` | My Action Items dashboard post-finalization |
 
 ---
 
 ## What 4Minitz Got Right
 
-### The Data Model
+- Immutable finalized record with explicit versioning
+- Three-tier participant model (Moderator / Invited / Informed)
+- Carry-forward by reference, not copy — history accumulates naturally
+- Chronological note log on action items — commitment history preserved
+- Cross-series personal dashboard — makes the tool individually valuable
+- Decoupled notifications — finalize and notify are separate decisions
+- Explicit Minutes linked list — chain of custody is structural, not incidental
 
-The hierarchy is correct and worth preserving:
+## What 4Minitz Missed (Docket Will Address)
 
-```
-MeetingSeries
-└── Minutes (one per meeting instance)
-    └── Topic
-        ├── InfoItem (what was discussed / decided)
-        └── ActionItem (who does what by when)
-            ├── responsible (owner)
-            └── duedate
-```
-
-This is not an obvious design. Many tools flatten this into a task list with a "meeting" tag. The 4Minitz model preserves the *context* — you can always answer "where did this commitment come from?" by navigating back up the hierarchy. That's the chain of custody that makes Docket valuable.
-
-### The "Finalize" Concept
-
-4Minitz made a distinction between *draft* minutes and *finalized* minutes. Finalized minutes are immutable — they become the official record. This is the right call for Professional Services contexts where the minutes may be referenced in a dispute, a scope change discussion, or a contract amendment. The record needs to be trustworthy.
-
-### Recurring Topics
-
-Topics could be marked to carry forward to the next meeting if unresolved. This is subtle but powerful — it means the tool has memory between meetings, not just within them. An unresolved issue from three meetings ago is still visible. Nothing gets dropped by accident.
-
-### Labels — Many-to-Many, Not an Enum
-
-Topics can carry multiple labels simultaneously — a single ActionItem can be tagged `Decision`, `Proposal`, and `New` at the same time. Labels are not mutually exclusive. This has a direct impact on the Docket schema: the label relationship must be many-to-many, not a single enum field on the ActionItem record. A label table with a junction table to ActionItems is the correct model.
-
-Labels observed in the running system: `Decision`, `Proposal`, `Routine`, `New`, `Status:GREEN`, `Status:RED`. The Status labels are particularly interesting — they appear to be topic-level health indicators separate from the item-level completion status.
-
-### Email Distribution
-
-4Minitz sent the agenda *before* the meeting and the finalized minutes *after*. Both are important. The pre-meeting agenda distribution forces structure before the meeting starts. The post-meeting distribution creates the official record and gets it to people who weren't in the room.
-
----
-
-## What We're Replacing and Why
-
-| 4Minitz approach | Keeper/Docket approach | Reason |
-|---|---|---|
-| Manual topic/action item entry | AI extraction from transcript | Removes friction at the hardest moment |
-| Web form interface | Teams / Slack bot | Meets people where they already are |
-| Email distribution | Direct 1:1 bot messages to owners | More personal, more immediate, trackable |
-| No follow-up | Agent-driven reminders until Done | Closes the accountability loop |
-| Meteor.js + MongoDB | .NET 9 / Python + SQL | Framework longevity and ecosystem health |
-| Single implementation | Two stacks from same spec | Demonstrates tool generalization |
-| No external API | Docket REST API | Enables integrations, standalone value |
-
----
-
-## What We're Keeping (Conceptually)
-
-- The MeetingSeries → Minutes → Topics → ActionItems hierarchy
-- The Finalize / immutability concept
-- The recurring/carry-forward topic concept
-- The label/type system (`#Decision`, `#Action`, `#Risk`, `#Info`)
-- The pre/post meeting distribution concept (adapted to bot messaging)
-- The genuine respect for the meeting as a formal record-generating event
-
----
-
-## Running 4Minitz for Reference
-
-4Minitz can be run locally via Docker Compose for reference purposes:
-
-```bash
-git clone https://github.com/4minitz/4minitz.git
-cd 4minitz
-cp settings_sample.json settings.json
-docker-compose up
-```
-
-The application runs at `http://localhost:3100` by default. Default credentials are in the `settings_sample.json` file.
-
-**Note:** This is for archaeological reference only. The running instance is not connected to any of the Keeper/Docket infrastructure and is not modified. It is observed, not extended.
-
-Screenshots and data model diagrams derived from the running instance will be added to this folder as the archaeology phase completes.
-
----
-
-## Open Questions from Archaeology
-
-- [x] **How does 4Minitz handle a commitment made about someone who wasn't in the meeting?**  
-  Answered by screenshots. 4Minitz allows action items to be assigned to any participant registered in the MeetingSeries, regardless of attendance at a specific meeting instance. The system records non-attendance and flags the item — it does not prevent assignment. Robert Ballard was assigned an action item in a meeting he didn't attend; the system noted his absence and the item carried forward. Docket must support the same behavior: owner presence at a specific meeting is irrelevant to ownership of an action item.
-
-- [ ] What happens to action items when a MeetingSeries is archived or closed?
-
-- [x] **How does the recurring topic carry-forward actually work?**  
-  Answered by screenshots. Topics carry forward by reference with new notes appended chronologically. The original action item remains the same record — new detail entries are added beneath it, each dated. It is not a copy. The history of the item is visible in a single view spanning multiple meetings. Docket's ActionItem history endpoint (`GET /items/{id}/history`) must return the full chronological note chain, not just status changes.
-
-- [x] **What is the data model for participants vs. action item owners? Are they the same entity?**  
-  Answered by screenshots. Participants are registered users of the system. There are three roles within a MeetingSeries: `Moderator` (meeting chair, owns the series), `Invited` (active participants, expected to attend, can own action items), and `Informed` (receive minutes, not expected to attend or own items). Action item owners are drawn from Invited participants. The Informed role maps to Docket's distribution list — people who receive the record but don't carry accountability.
-
----
-
-## Screenshot Inventory
-
-All screenshots captured from the live Docker instance on 2026-02-23. Files go in `/docs/00-archaeology/screenshots/`.
-
-| Filename | Content | Key Finding |
-|---|---|---|
-| `001-0-RegisterAccount.jpg` | Account registration screen | User identity model: username, display name, email |
-| `001-1-MainView001.jpg` | Main view — Meetings tab | Top-level: MeetingSeries list with last-minutes date and finalization status |
-| `001-1-MainViewActionItems.jpg` | Main view — My Action Items tab | Cross-series personal dashboard; the source for Keeper's morning briefing |
-| `002-CreateMeetingSeries.jpg` | Edit Meeting Series dialog | Three participant roles confirmed: Moderator, Invited, Informed |
-| `003-CreateMeetingMinutes0202Meeting.jpg` | Draft minutes — first meeting | SEND AGENDA + FINALIZE MINUTES + DELETE MINUTES controls visible |
-| `003-CreateMeetingMinutes0202Meeting002.jpg` | Draft minutes with topics expanded | InfoItem vs ActionItem distinction visible; Status:RED on absent participant's topic |
-| `003-CreateMeetingMinutes0202MeetingFinalized.jpg` | Finalized minutes | "Version 1. Finalized on [timestamp] by [user]" — versioned, attributed, fields locked |
-| `004-FollowupMeeting.jpg` | Second meeting — draft | Carry-forward confirmed: prior action item visible with new notes appended chronologically |
-| `004-FollowupMeetingFinalized.jpg` | Second meeting — finalized | "Previous: 2026-02-02" link — meetings are explicitly chained, not just dated |
-| `005-TopicDetails.jpg` | Topic detail view | Multi-label confirmed: Decision + Proposal + New on same item; finalized-on reference shown |
-
----
-
-## Key Findings from Running the System
-
-These are discoveries made by actually running 4Minitz that were not visible from reading the codebase description alone.
-
-**The Informed role is a distribution list, not a participant role.** Informed users receive minutes but have no attendance expectation and cannot own action items. This directly maps to Docket's post-meeting distribution concept — some people need the record without being accountable to it.
-
-**Action items can be assigned to absent participants.** The system does not prevent this. It records the absence and flags it, but the assignment stands. This is correct behavior for Professional Services: "Jeff will handle that" is a commitment regardless of whether Jeff was in the room. Keeper's extraction agent must not filter out commitments about people who weren't present — it must flag them for review.
-
-**The "My Action Items" view crosses meeting series boundaries.** This is the view that makes the tool personally useful rather than just organizationally useful. A user can see everything they've committed to across all their meeting series in one place. Docket needs `GET /owner/{id}/open-items` as a first-class endpoint, not an afterthought.
-
-**Labels are many-to-many.** A single action item carried three labels simultaneously in the screenshots. The Docket schema must use a junction table, not an enum column.
-
-**Minutes are explicitly chained.** The follow-up meeting shows "Previous: 2026-02-02" as a navigable link. This isn't just sorting by date — it's an explicit linked-list structure between meeting instances within a series. The chain of custody runs not just up the hierarchy (Item → Topic → Minutes → Series) but also laterally across time (Minutes[n] → Minutes[n-1]).
-
-**The note that will become a blog moment:** While testing carry-forward behavior, the following was entered as a meeting note in the live system: *"Discussion on open items like assigning actions to users who aren't present (Robert wasn't happy)."* This note — added to investigate an edge case — is now part of the finalized, immutable record of the archaeology session. It will appear in the blog post as the moment the tool demonstrated its own value proposition on the project documenting it.
-
----
-
-## Archaeology Status
-
-- [x] Identified project and confirmed inactive status
-- [x] Analyzed cause of death (framework entropy + no LLM + maintainer bandwidth)
-- [x] Documented data model hierarchy
-- [x] Identified what to preserve and what to replace
-- [x] Clone and run locally via Docker
-- [x] Screenshot the UI — 10 screenshots captured
-- [x] Answer open questions (3 of 4 resolved from screenshots)
-- [ ] Confirm behavior when MeetingSeries is archived or closed
-- [ ] Diagram the full data model from source code
-- [ ] Extract feature list for `/docs/01-spec/`
-
----
+- No archive state for MeetingSeries — completed engagements must be deleted or left open
+- No structured export — email is the only archival artifact
+- No API — integrations are impossible without scraping
+- No external participant support — LDAP/internal users only, no cross-org meeting support
+- No AI extraction layer — commitments require manual entry
+- Framework entropy (Meteor.js) — made long-term maintenance unsustainable
