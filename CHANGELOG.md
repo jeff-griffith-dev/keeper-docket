@@ -63,7 +63,7 @@ There were several important questions about what happens when a meeting is over
 - Published Post 1 on the blog — motivation, plan, and first evidence
 
 ### Why
-THe data model design highlighted several questions about "What are Minutes?" and "What happens to defered/abandoned items when a meeting is finalized?"
+The data model design highlighted several questions about "What are Minutes?" and "What happens to defered/abandoned items when a meeting is finalized?"
 
 ### What comes next
 - Clean up the Docket code and write test code for it
