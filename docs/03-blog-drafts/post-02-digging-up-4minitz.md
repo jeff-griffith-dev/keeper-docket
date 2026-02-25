@@ -46,11 +46,11 @@ The "finalize minutes" workflow is also correct. Minutes aren't just a note — 
 
 **No pre-creation gate on new Minutes.** Nothing stops you from creating Minutes for a new meeting while a prior draft is still sitting unresolved. In 4Minitz this is a minor friction point. In an agentic system it's a correctness problem — Keeper needs to know the chain is clean before it can reason about it. Docket blocks creation of new Minutes if any prior draft in the chain is unresolved, and requires explicit abandonment (with a mandatory note) before proceeding.
 
-**No cross-series view.** The "My Action Items" dashboard shows open items across all series for the logged-in user, which is useful. But there's no concept of an engagement that spans multiple series — no way to say "these five recurring meetings are all part of the same client project." That's a harder problem and the right call for v1 is to defer it, but it needs to be a conscious deferral with a migration path, not an accident. ADR-005 in the repo covers exactly that decision.
+**No cross-series view.** The "My Action Items" dashboard shows open items across all series for the logged-in user, which is useful. But there's no concept of an engagement that spans multiple series — no way to say "these five recurring meetings are all part of the same client project." That's a harder problem and the right call for v1 is to defer it, but it needs to be a conscious deferral with a migration path, not an accident. [ADR-005](https://github.com/jeff-griffith-dev/keeper-docket/blob/main/docs/02-architecture/ADR-005-meetingseries-scope.md) in the repo covers exactly that decision.
 
 ## What This Fed Into the Design
 
-The archaeology produced ten concrete schema decisions that went directly into Docket's domain model:
+The archaeology produced ten concrete schema decisions that went directly into Docket's domain model: see [docs/00-archaeology](https://github.com/jeff-griffith-dev/keeper-docket/blob/main/docs/00-archaeology/README.md)
 
 The participant role model became `SeriesParticipant` with a `ParticipantRole` enum covering Moderator, Invited, and Informed. Attendance tracking became a first-class `MinutesAttendee` entity — separate from the participant list — so the system can derive `assignedInAbsentia` mechanically rather than requiring manual input. Labels became a proper junction table. The linked-list chain between Minutes records became an explicit `PreviousMinutesId` foreign key rather than date ordering, because meetings get cancelled, rescheduled, and abandoned and you can't rely on dates being contiguous.
 
