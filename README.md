@@ -25,7 +25,7 @@ This project is also a revival and modernization of [4Minitz](https://github.com
 
 The full story — motivation, decisions, architecture, and implementation — is documented as it happens:
 
-📝 **Blog series:** [kdblog.jeff-griffith.dev](https://kdblog.jeff-griffith.dev)
+📝 **Blog series:** [keeper-docket.hashnode.dev](https://keeper-docket.hashnode.dev)
 
 ---
 
@@ -90,10 +90,10 @@ keeper-docket/
 | Component | Status |
 |---|---|
 | Repo structure | ✅ Complete |
-| 4Minitz archaeology | 🏗️ In progress |
+| 4Minitz archaeology | ✅ Complete |
 | Architecture Decision Records | 🏗️ In progress |
-| Docket domain model | 🔜 Next |
-| Docket REST API | 🔜 Pending |
+| Docket domain model | ✅ Complete |
+| Docket REST API | ✅ Complete |
 | Keeper — Azure Stack | 🔜 Pending |
 | Keeper — Portable Stack | 🔜 Pending |
 
@@ -103,7 +103,7 @@ This table reflects what actually exists in this repository right now. It is upd
 
 ## The Two Stacks
 
-This project is intentionally implemented twice — not to demonstrate that one stack is better, but to demonstrate that the constraint is no longer implementation. Modern AI-assisted development tools generated both implementations from the same spec. The bottleneck is thinking, not typing.
+This project is intentionally implemented twice — not to demonstrate that one stack is better, but to demonstrate that the constraint is no longer implementation. Modern AI-assisted development tools generated both implementations from the same spec. The bottleneck is thinking, not typing. You don't have to pick one market over another because they run on different platforms. Instead, you can work out how to address the markets that make sense for your product and let AI work out the details. 
 
 | | Azure Stack | Portable Stack |
 |---|---|---|
@@ -131,7 +131,7 @@ This is not a competitor to Copilot. It is the accountability layer that Copilot
 
 The blog series documents every decision, dead end, and working implementation as it happens. Each post links to the specific commit that represents its "as of" state — you can check out that commit and see exactly what existed when each post was written.
 
-📝 [kdblog.jeff-griffith.dev](https://kdblog.jeff-griffith.dev)  
+📝 [keeper-docket.hashnode.dev](https://keeper-docket.hashnode.dev)  
 🐙 [github.com/jeff-griffith-dev/keeper-docket](https://github.com/jeff-griffith-dev/keeper-docket)
 
 ---

@@ -32,3 +32,41 @@ It begins when the reasoning is recorded. These files are the first evidence.
 - Publish Post 1 on the blog — motivation, plan, and first evidence
 
 ---
+
+## [2026-02-23] — Archaeology and Start Docket Design
+
+### What happened
+- 4Minitz repository cloned and user interface reviewed
+- Feature spec completed
+- Complete domain model design
+
+### Why
+There were several important questions about what happens when a meeting is over that needed to be answered.  
+
+### What comes next
+- Document the archaeology results
+- Draft the Docket domain model: MeetingSeries / Minutes / Topics / ActionItems / Owners
+- Publish Post 1 on the blog — motivation, plan, and first evidence
+
+---
+
+## [2026-02-24] — Docket Implementation and Testing
+
+### What happened
+- Docket data model and APIs completed
+- Catchup the documentation
+  - [00-archaeology/README.md](docs/00-archaeology/README.md)
+- Architecture Decision Records created after considering changes to the Azure platform:
+  - [ADR-004: AI Orchestration Layer](docs/02-architecture/ADR-004-ai-orchestration.md)
+- Architecture Decision Records created after considering the question "Is an Engagement one meeting or many":
+  - [ADR-005: MeetingSeries Scope and Engagement-Level Grouping](docs/02-architecture/ADR-005-meetingseries-scope.md)
+- Published Post 1 on the blog — motivation, plan, and first evidence
+
+### Why
+The data model design highlighted several questions about "What are Minutes?" and "What happens to defered/abandoned items when a meeting is finalized?"
+
+### What comes next
+- Clean up the Docket code and write test code for it
+- Start the Azure implementation for Keeper
+
+---
