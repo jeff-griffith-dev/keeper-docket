@@ -48,9 +48,11 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
             UnresolvedDraftsException    => StatusCodes.Status409Conflict,
             MinutesFinalizedException    => StatusCodes.Status409Conflict,
             InvalidStatusTransitionException => StatusCodes.Status409Conflict,
+            UnresolvedNonRecurringItemsException => StatusCodes.Status409Conflict,
             _                            => StatusCodes.Status422UnprocessableEntity
         };
 
+        /*
         var problem = new ProblemDetails
         {
             Status = statusCode,
@@ -65,10 +67,36 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
                 .Select(d => new { id = d.Id, scheduledFor = d.ScheduledFor })
                 .ToArray();
         }
+        */
+        object detail = ex switch
+        {
+            UnresolvedNonRecurringItemsException e => new
+            {
+                title = "UNRESOLVED_ITEMS",
+                status = statusCode,
+                detail = e.Message,
+                blockingItemIds = e.BlockingItemIds
+            },
+            UnresolvedDraftsException draftsEx => new
+            {
+                Status = statusCode,
+                Title = draftsEx.ErrorCode,
+                Detail = draftsEx.Message,
+                Extension = draftsEx.UnresolvedDrafts
+                .Select(d => new { id = d.Id, scheduledFor = d.ScheduledFor })
+                .ToArray()
+            },
+            _ => new
+            {
+                title = ex.ErrorCode, //.GetType().Name.Replace("Exception", "").ToUpperInvariant(),
+                status = statusCode,
+                detail = ex.Message
+            }
+        };
 
         context.Response.StatusCode = statusCode;
         context.Response.ContentType = "application/problem+json";
-        await context.Response.WriteAsync(JsonSerializer.Serialize(problem));
+        await context.Response.WriteAsync(JsonSerializer.Serialize(detail));
     }
 
     private static async Task HandleUnexpectedExceptionAsync(HttpContext context)

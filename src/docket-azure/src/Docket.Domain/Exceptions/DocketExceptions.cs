@@ -89,3 +89,4 @@ public class NotProvidedException(string missingItem)
 
 public class ForbiddenException(string reason)
     : DocketException("FORBIDDEN", reason);
+

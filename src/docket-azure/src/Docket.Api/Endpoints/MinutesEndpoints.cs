@@ -294,7 +294,6 @@ public static class MinutesEndpoints
         return Results.Ok(result);
     }
 
-    // POST /minutes/{minutesId}/finalize
     private static async Task<IResult> FinalizeMinutes(
         Guid minutesId,
         FinalizeMinutesRequest request,
@@ -310,21 +309,33 @@ public static class MinutesEndpoints
 
         SeriesEndpoints.EnsureModerator(minutes.Series!, currentUser.UserId);
 
-        minutes.Finalize(currentUser.UserId);
+        // Gate: open items on non-recurring topics must be resolved before finalization.
+        // Recurring open items are intentionally allowed — they will be carried forward
+        // automatically when the next Minutes are created.
+        // See ADR-006.
+        var blockingItems = await db.ActionItems
+            .Where(a => a.Topic!.MinutesId == minutesId &&
+                        a.Topic.Type != TopicType.Recurring &&
+                        a.Status == ActionItemStatus.Open)
+            .Select(a => a.Id)
+            .ToListAsync(ct);
 
+        if (blockingItems.Count > 0)
+            throw new UnresolvedNonRecurringItemsException(minutesId, blockingItems);
+
+        minutes.Finalize(currentUser.UserId);
         await db.SaveChangesAsync(ct);
 
-        // Notifications are fire-and-forget in v1 — logged but don't affect the response
-        // TODO: wire up INotificationService when email is implemented
         if (request.NotifyResponsibles || request.NotifyAll)
         {
             // Placeholder: log intent
         }
 
-        var result = await MinutesEndpoints.LoadMinutesDetailAsync(minutesId, minutes.SeriesId, db, ct);
+        var result = await MinutesEndpoints.LoadMinutesDetailAsync(
+            minutesId, minutes.SeriesId, db, ct);
         return Results.Ok(result);
     }
-
+    
     // POST /minutes/{minutesId}/abandon
     private static async Task<IResult> AbandonMinutes(
         Guid minutesId,

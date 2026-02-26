@@ -288,11 +288,16 @@ public class CarryForwardWorkflowTests : WorkflowTestBase
         var seriesId = await CreateSeriesAsync("CF-NonRecurring");
         var m1Id = await CreateMinutesAsync(seriesId);
         var t1Id = await CreateDiscussionTopicAsync(m1Id, "One-time discussion");
-        await CreateActionItemAsync(t1Id, "Do the thing");
+        var a1Id = await CreateActionItemAsync(t1Id, "Do the thing");
+
+        // Non-recurring open items must be resolved before finalization (ADR-006)
+        var doneResponse = await Patch($"/action-items/{a1Id}",
+            new { status = "done" });
+        doneResponse.IsSuccessStatusCode.Should().BeTrue();
+
         await FinalizeAsync(m1Id);
 
         var m2Id = await CreateMinutesAsync(seriesId);
-
         var m2Topics = await GetTopicsAsync(m2Id);
         m2Topics.Should().BeEmpty(
             "non-recurring topics must not carry forward");
@@ -510,5 +515,31 @@ public class CarryForwardWorkflowTests : WorkflowTestBase
             : note.GetString();
         noteValue.Should().BeNullOrEmpty(
             "unpinned global note must not carry forward");
+    }
+
+    [Fact]
+    public async Task FinalizeMinutes_WithOpenNonRecurringItem_Returns409()
+    {
+        var seriesId = await CreateSeriesAsync("CF-FinalizeGate");
+        var m1Id = await CreateMinutesAsync(seriesId);
+        var t1Id = await CreateDiscussionTopicAsync(m1Id, "One-time discussion");
+        await CreateActionItemAsync(t1Id, "Do the thing");
+
+        var response = await Post($"/minutes/{m1Id}/finalize", new { });
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict,
+            "finalization must be blocked by open items on non-recurring topics");
+    }
+
+    [Fact]
+    public async Task FinalizeMinutes_WithOpenRecurringItem_Succeeds()
+    {
+        var seriesId = await CreateSeriesAsync("CF-FinalizeRecurring");
+        var m1Id = await CreateMinutesAsync(seriesId);
+        var t1Id = await CreateRecurringTopicAsync(m1Id, "Standing agenda item");
+        await CreateActionItemAsync(t1Id, "Ongoing task");
+
+        var response = await Post($"/minutes/{m1Id}/finalize", new { });
+        response.IsSuccessStatusCode.Should().BeTrue(
+            "open items on recurring topics must not block finalization — they carry forward");
     }
 }

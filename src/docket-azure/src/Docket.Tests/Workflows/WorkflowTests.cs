@@ -459,6 +459,9 @@ public class SeriesArchivalWorkflowTests : WorkflowTestBase
 
         await Patch($"/action-items/{doneItem1.Id}", new { status = "Done" });
 
+        // See ADR-006  for rationale on why we block finalize on open items for non-recurring meetings     
+        await Patch($"/action-items/{openItem1.Id}", new { status = "Deferred" });
+
         await PostAndDeserialize<MinutesDto>(
             $"/minutes/{meeting1.Id}/finalize",
             new { notifyResponsibles = false, notifyAll = false });
@@ -475,6 +478,9 @@ public class SeriesArchivalWorkflowTests : WorkflowTestBase
             $"/topics/{topic2.Id}/action-items",
             new { title = "New item in meeting 2, never resolved", responsibleId = StubCurrentUserService.StubUserId });
 
+        // See ADR-006  for rationale on why we block finalize on non-recurring meetings     
+        await Patch($"/action-items/{openItem2.Id}", new { status = "Deferred" });
+
         await PostAndDeserialize<MinutesDto>(
             $"/minutes/{meeting2.Id}/finalize",
             new { notifyResponsibles = false, notifyAll = false });
@@ -486,11 +492,11 @@ public class SeriesArchivalWorkflowTests : WorkflowTestBase
         var archivedSeries = await GetAndDeserialize<SeriesDto>($"/series/{series.Id}");
         archivedSeries.Status.Should().Be("Archived");
 
-        // --- Verify open items are now Abandoned ---
+        // --- Deferred items will be Abandoned ---
         var openItem1After = await GetAndDeserialize<ActionItemDto>(
             $"/action-items/{openItem1.Id}");
         openItem1After.Status.Should().Be("Abandoned",
-            "open items in finalized Minutes must be abandoned when the series is archived");
+            "deferred items in finalized Minutes must be abandoned when the series is archived");
 
         var openItem2After = await GetAndDeserialize<ActionItemDto>(
             $"/action-items/{openItem2.Id}");
