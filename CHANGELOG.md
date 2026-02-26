@@ -70,3 +70,27 @@ The data model design highlighted several questions about "What are Minutes?" an
 - Start the Azure implementation for Keeper
 
 ---
+
+## [2026-02-25] — Docket API Contract, State Machine and Workflow Testing
+
+### What happened
+I've been building out test suites to validate and verify that Docket does what we expect it to do.
+
+- 41 state machine tests — domain logic is correct
+- 9 workflow tests — critical multi-step scenarios work end to end
+- 46 contract tests — all 38 endpoints speak the right language
+
+### Why
+These test suites verify that the 38 endpoints do what we say they do, and they validate that what we said they do is the right thing to be doing.
+
+The contract tests found four missing validations found that were fixed, two authorization behaviors clarified (403 vs 404) and one history endpoint semantics pinned down (ActionItems history returns a list containing the item with an empty history, not an empty list).
+
+### What comes next
+- Working on carry-forward testing
+- Start the Azure implementation for Keeper
+
+---
+
+
+
+
