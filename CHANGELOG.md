@@ -77,11 +77,13 @@ The data model design highlighted several questions about "What are Minutes?" an
 I've been building out test suites to validate and verify that Docket does what we expect it to do. 
 
 - 41 state machine tests
-- 9 workflow tests
+-  9 workflow tests
 - 13 carry-forward tests
-= 46 contract tests
+-  2 finalization gate tests
+- 46 contract tests
+- 56 integration/other tests 
 
-- 109 tests, all green.
+- 167 tests, all green.
 
 ### Why
 These test suites verify that the 38 endpoints do what we say they do, and they validate that what we said they do is the right thing to be doing. They also provide useful commentary about the design and provide examples.
@@ -95,7 +97,4 @@ Docket is solid. The API speaks the right language, the state machine is correct
 - Start the Azure implementation for Keeper
 
 ---
-
-
-
 
