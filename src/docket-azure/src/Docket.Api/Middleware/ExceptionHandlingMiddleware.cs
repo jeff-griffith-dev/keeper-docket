@@ -34,6 +34,8 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
     {
         var statusCode = ex switch
         {
+            ArgumentMissingException     => StatusCodes.Status400BadRequest,
+            NotProvidedException         => StatusCodes.Status404NotFound,
             NotFoundException            => StatusCodes.Status404NotFound,
             ForbiddenException           => StatusCodes.Status403Forbidden,
             EmailExistsException         => StatusCodes.Status409Conflict,
@@ -41,6 +43,11 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
             DuplicateAttendeeException   => StatusCodes.Status409Conflict,
             DuplicateLabelException      => StatusCodes.Status409Conflict,
             LabelAlreadyAppliedException => StatusCodes.Status409Conflict,
+            SystemLabelException         => StatusCodes.Status403Forbidden,
+            SeriesArchivedException      => StatusCodes.Status409Conflict,
+            UnresolvedDraftsException    => StatusCodes.Status409Conflict,
+            MinutesFinalizedException    => StatusCodes.Status409Conflict,
+            InvalidStatusTransitionException => StatusCodes.Status409Conflict,
             _                            => StatusCodes.Status422UnprocessableEntity
         };
 

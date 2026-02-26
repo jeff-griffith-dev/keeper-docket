@@ -121,6 +121,9 @@ public static class MinutesEndpoints
         ICurrentUserService currentUser,
         CancellationToken ct)
     {
+        if(request.SeriesId == Guid.Empty)
+            throw new ArgumentMissingException(nameof(request.SeriesId));
+
         var series = await db.MeetingSeries
             .Include(s => s.Participants)
             .FirstOrDefaultAsync(s => s.Id == request.SeriesId, ct)
@@ -135,22 +138,25 @@ public static class MinutesEndpoints
         await SeriesEndpoints.EnsureNoUnresolvedDraftsAsync(request.SeriesId, db, ct);
 
         // Find the most recent Minutes to set previousMinutesId and seed carry-forward
-        var latestMinutes = await db.Minutes
+        var candidates = await db.Minutes
             .Where(m => m.SeriesId == request.SeriesId)
-            .OrderByDescending(m => m.CreatedAt)
             .Include(m => m.Topics)
                 .ThenInclude(t => t.ActionItems)
-            .FirstOrDefaultAsync(ct);
+            .ToListAsync(ct);
+        var latestMinutes = candidates
+            .OrderByDescending(m => m.CreatedAt)
+            .FirstOrDefault();
 
-        // Find the most recent *finalized* Minutes for carry-forward source
-        var lastFinalized = await db.Minutes
+        candidates = await db.Minutes
             .Where(m => m.SeriesId == request.SeriesId &&
                         m.Status == MinutesStatus.Finalized)
-            .OrderByDescending(m => m.FinalizedAt)
             .Include(m => m.Topics)
                 .ThenInclude(t => t.ActionItems)
                     .ThenInclude(a => a.ActionItemLabels)
-            .FirstOrDefaultAsync(ct);
+            .ToListAsync(ct);
+        var lastFinalized = candidates
+            .OrderByDescending(m => m.FinalizedAt)
+            .FirstOrDefault();
 
         var newMinutes = new Minutes
         {
@@ -193,7 +199,8 @@ public static class MinutesEndpoints
 
                 // Carry forward open action items on this topic
                 var openItems = sourceTopic.ActionItems
-                    .Where(a => a.Status == ActionItemStatus.Open)
+                    .Where(a => a.Status == ActionItemStatus.Open ||
+                                a.Status == ActionItemStatus.Deferred)
                     .ToList();
 
                 foreach (var sourceItem in openItems)
@@ -358,6 +365,11 @@ public static class MinutesEndpoints
         DocketDbContext db,
         CancellationToken ct)
     {
+        // Verify that the Minutes exists — if not, return 404 instead of empty list
+        var exists = await db.Minutes.AnyAsync(m => m.Id == minutesId, ct);
+        if (!exists)
+            throw new NotFoundException(nameof(Minutes), minutesId);
+
         var attendees = await db.MinutesAttendees
             .Include(a => a.User)
             .Where(a => a.MinutesId == minutesId)
@@ -385,11 +397,13 @@ public static class MinutesEndpoints
         minutes.EnsureEditable();
 
         var participant = minutes.Series!.Participants
-            .FirstOrDefault(p => p.UserId == request.UserId)
-            ?? throw new NotFoundException(nameof(SeriesParticipant), request.UserId);
+            .FirstOrDefault(p => p.UserId == request.UserId);
 
-        if (participant.Role == ParticipantRole.Informed)
-            throw new InformedAttendeeException();
+        if (participant != null)
+            throw new DuplicateAttendeeException(request.UserId, minutesId);
+
+        //if (participant.Role == ParticipantRole.Informed)
+        //    throw new InformedAttendeeException();
 
         if (minutes.Attendees.Any(a => a.UserId == request.UserId))
             throw new DuplicateAttendeeException(request.UserId, minutesId);

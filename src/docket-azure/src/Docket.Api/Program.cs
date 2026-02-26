@@ -11,23 +11,26 @@ var builder = WebApplication.CreateBuilder(args);
 // ---------------------------------------------------------------------------
 // Database — SQLite for dev, Azure SQL for prod
 // ---------------------------------------------------------------------------
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
-if (builder.Environment.IsDevelopment())
+if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"))
 {
     builder.Services.AddDbContext<DocketDbContext>(options =>
-        options.UseSqlite(connectionString ?? "Data Source=docket-dev.db")
-               .AddInterceptors(new AuditInterceptor())
-               .EnableSensitiveDataLogging()
-               .EnableDetailedErrors());
+        options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")
+            ?? "Data Source=docket-dev.db"));
+
+    //builder.Services.AddDbContext<DocketDbContext>(options =>
+    //    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")
+    //        ?? "Data Source=docket-dev.db")
+    //           .AddInterceptors(new AuditInterceptor())
+    //           .EnableSensitiveDataLogging()
+    //           .EnableDetailedErrors());
 }
 else
 {
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("DefaultConnection connection string is required in non-development environments.");
     builder.Services.AddDbContext<DocketDbContext>(options =>
-        options.UseSqlServer(connectionString
-            ?? throw new InvalidOperationException(
-                "DefaultConnection connection string is required in non-development environments."))
-               .AddInterceptors(new AuditInterceptor()));
+        options.UseSqlServer(connectionString));
 }
 
 // ---------------------------------------------------------------------------
@@ -56,11 +59,19 @@ if (app.Environment.IsDevelopment())
         options.Theme = ScalarTheme.Default;
     });
 
-    // Auto-apply migrations and seed the dev database on startup
+    // Auto-apply schema and seed on startup.
+    // SQLite (dev local + tests) uses EnsureCreated — no migration history table needed.
+    // SQL Server (prod) uses MigrateAsync — incremental migrations applied in order.
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<DocketDbContext>();
-    await db.Database.MigrateAsync();
-    await DevSeedAsync(db);
+    if (db.Database.ProviderName == "Microsoft.EntityFrameworkCore.Sqlite")
+        await db.Database.EnsureCreatedAsync();
+    else
+        await db.Database.MigrateAsync();
+
+    // Only seed in true dev mode, not test mode
+    if (!app.Environment.IsEnvironment("Testing"))
+        await DevSeedAsync(db);
 }
 
 app.UseHttpsRedirection();

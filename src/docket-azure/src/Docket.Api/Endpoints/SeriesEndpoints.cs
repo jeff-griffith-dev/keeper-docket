@@ -4,6 +4,7 @@ using Docket.Domain.Enums;
 using Docket.Domain.Exceptions;
 using Docket.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using System.Net;
 
 namespace Docket.Api.Endpoints;
 
@@ -142,6 +143,9 @@ public static class SeriesEndpoints
         ICurrentUserService currentUser,
         CancellationToken ct)
     {
+        if (request.Name == null || string.IsNullOrWhiteSpace(request.Name))
+            throw new ArgumentMissingException("Series Name");
+
         var series = new MeetingSeries
         {
             Name = request.Name.Trim(),

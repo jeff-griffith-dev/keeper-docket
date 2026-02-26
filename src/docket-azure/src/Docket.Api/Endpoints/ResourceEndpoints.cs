@@ -169,6 +169,9 @@ public static class TopicEndpoints
         ICurrentUserService currentUser,
         CancellationToken ct)
     {
+        if(request.Title == null || string.IsNullOrWhiteSpace(request.Title))
+            throw new ArgumentMissingException("Topic Title");
+
         var minutes = await EndpointHelpers.LoadMinutesWithSeriesAsync(minutesId, db, ct);
         EndpointHelpers.EnsureModeratorOrInvited(minutes, currentUser.UserId);
         minutes.EnsureEditable();
@@ -288,6 +291,9 @@ public static class InfoItemEndpoints
         ICurrentUserService currentUser,
         CancellationToken ct)
     {
+        if(request.Text == null || string.IsNullOrWhiteSpace(request.Text))
+            throw new ArgumentMissingException("Info Item Text");   
+
         var topic = await db.Topics.FindAsync([topicId], ct)
             ?? throw new NotFoundException(nameof(Topic), topicId);
         var minutes = await EndpointHelpers.LoadMinutesWithSeriesAsync(topic.MinutesId, db, ct);
@@ -393,6 +399,9 @@ public static class ActionItemEndpoints
         ICurrentUserService currentUser,
         CancellationToken ct)
     {
+        if (request.Title == null || string.IsNullOrWhiteSpace(request.Title))
+            throw new ArgumentMissingException("Action Item Title");
+
         var topic = await db.Topics.FindAsync([topicId], ct)
             ?? throw new NotFoundException(nameof(Topic), topicId);
         var minutes = await EndpointHelpers.LoadMinutesWithSeriesAsync(topic.MinutesId, db, ct);
@@ -562,6 +571,10 @@ public static class ActionItemEndpoints
         ICurrentUserService currentUser,
         CancellationToken ct)
     {
+
+        if (string.IsNullOrWhiteSpace(request.Text))
+            throw new ArgumentMissingException("Note Text");
+
         var item = await db.ActionItems
             .Include(a => a.Topic).ThenInclude(t => t!.Minutes)
             .FirstOrDefaultAsync(a => a.Id == actionItemId, ct)
@@ -694,6 +707,9 @@ public static class LabelEndpoints
         DocketDbContext db,
         CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(request.Name))
+            throw new ArgumentMissingException("Label Name");
+
         if (!Enum.TryParse<LabelCategory>(request.Category, ignoreCase: true, out var category))
             throw new InvalidStatusTransitionException("unknown", request.Category);
 

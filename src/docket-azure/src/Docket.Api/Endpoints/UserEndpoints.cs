@@ -72,6 +72,9 @@ public static class UserEndpoints
         DocketDbContext db,
         CancellationToken ct)
     {
+        if(string.IsNullOrWhiteSpace(request.Email))
+            throw new ArgumentMissingException("User Email");
+
         var emailNormalized = request.Email.Trim().ToLowerInvariant();
 
         var exists = await db.Users.AnyAsync(u => u.Email == emailNormalized, ct);

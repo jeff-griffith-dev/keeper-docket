@@ -18,6 +18,10 @@ public class MinutesAbandonedException(Guid minutesId)
     : DocketException("MINUTES_ABANDONED",
         $"Minutes {minutesId} has been abandoned and cannot be modified.");
 
+public class ArgumentMissingException(string missingArg)
+    : DocketException("ARGUMENT_MISSING",
+        $"{missingArg} must have a value.");
+
 public class SeriesArchivedException(Guid seriesId)
     : DocketException("SERIES_ARCHIVED",
         $"MeetingSeries {seriesId} is archived. No new Minutes can be created and no records can be edited.");
@@ -78,6 +82,10 @@ public class EmailExistsException(string email)
 public class NotFoundException(string resourceType, Guid id)
     : DocketException("NOT_FOUND",
         $"{resourceType} {id} was not found.");
+
+public class NotProvidedException(string missingItem)
+    : DocketException("NOT_PROVIDED",
+        $"{missingItem} was not provided.");
 
 public class ForbiddenException(string reason)
     : DocketException("FORBIDDEN", reason);

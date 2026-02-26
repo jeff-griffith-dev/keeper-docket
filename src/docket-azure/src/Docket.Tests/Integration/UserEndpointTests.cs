@@ -1,8 +1,10 @@
 using Docket.Api.Services;
+using Docket.Domain.Entities;
 using Docket.Infrastructure.Data;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net;
@@ -11,15 +13,76 @@ using Xunit;
 
 namespace Docket.Tests.Integration;
 
+// ---------------------------------------------------------------------------
+// Shared infrastructure
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// Isolated factory for user endpoint tests — fresh database per test class.
+/// </summary>
+
+public class UserEndpointTestFactory : WebApplicationFactory<Program>
+{
+    private readonly SqliteConnection _keepAliveConnection;
+
+    public UserEndpointTestFactory()
+    {
+        var dbName = $"docket-integration-{Guid.NewGuid()}";
+        _keepAliveConnection = new SqliteConnection(
+            $"Data Source={dbName};Mode=Memory;Cache=Shared");
+        _keepAliveConnection.Open();
+    }
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
+        builder.ConfigureServices(services =>
+        {
+            var descriptor = services.SingleOrDefault(
+                d => d.ServiceType == typeof(DbContextOptions<DocketDbContext>));
+            if (descriptor is not null)
+                services.Remove(descriptor);
+
+            services.AddDbContext<DocketDbContext>(options =>
+                options.UseSqlite(_keepAliveConnection.ConnectionString));
+
+            var sp = services.BuildServiceProvider();
+            using var scope = sp.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<DocketDbContext>();
+            db.Database.EnsureCreated();
+
+            if (!db.Users.Any(u => u.Id == StubCurrentUserService.StubUserId))
+            {
+                db.Users.Add(new User
+                {
+                    Id = StubCurrentUserService.StubUserId,
+                    Email = "dev@docket.local",
+                    DisplayName = "Dev User (Stub)"
+                });
+                db.SaveChanges();
+            }
+        });
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing)
+            _keepAliveConnection.Dispose();
+    }
+}
+
+
+
 /// <summary>
 /// Integration tests for /users endpoints.
 /// Uses WebApplicationFactory with an isolated in-memory SQLite database per test.
 /// </summary>
-public class UserEndpointTests : IClassFixture<DocketWebApplicationFactory>
+public class UserEndpointTests : IClassFixture<UserEndpointTestFactory>
 {
-    private readonly DocketWebApplicationFactory _factory;
+    private readonly UserEndpointTestFactory _factory;
 
-    public UserEndpointTests(DocketWebApplicationFactory factory)
+    public UserEndpointTests(UserEndpointTestFactory factory)
     {
         _factory = factory;
     }
