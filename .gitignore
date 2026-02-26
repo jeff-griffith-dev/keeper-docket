@@ -74,3 +74,9 @@ src/Docket.Api/*.db-wal
 appsettings.Production.json
 appsettings.Staging.json
 secrets.json
+
+## Python
+__*__
+.env
+/src/keeper-portable/src/keeper/__init__.py
+/src/docket-azure/src/Docket.Api/docket-dev.db
