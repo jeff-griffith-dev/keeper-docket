@@ -80,3 +80,5 @@ __*__
 .env
 /src/keeper-portable/src/keeper/__init__.py
 /src/docket-azure/src/Docket.Api/docket-dev.db
+/src/docket-azure/src/Docket.Api/docket-dev.db-shm
+/src/docket-azure/src/Docket.Api/docket-dev.db-wal
