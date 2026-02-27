@@ -74,7 +74,7 @@ The data model design highlighted several questions about "What are Minutes?" an
 ## [2026-02-26] — Docket API Contract, State Machine and Workflow Testing, Start Keeper
 
 ### What happened
-Claude an I have been building out test suites to validate and verify that Docket does what we expect it to do. I've learned from other projects that AI, like people, doesn't like to write validation code. There's some justification for this; I've seen functions with 80 lines of validation code that precede the three lines of code that do the work of the function. This was the time to write them; before there's a lot of code that breaks when an API has to change. And they provide examples for others who want to use Docket stand-alone.
+Claude and I have been building out test suites to validate and verify that Docket does what we expect it to do. I've learned from other projects that AI, like people, doesn't like to write validation code. There's some justification for this; I've seen functions with 80 lines of validation code that precede the three lines of code that do the work of the function. This was the time to write them; before there's a lot of code that breaks when an API has to change. And they provide examples for others who want to use Docket stand-alone.
 
 - 41 state machine tests
 -  9 workflow tests
