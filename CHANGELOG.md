@@ -83,7 +83,7 @@ Claude and I have been building out test suites to validate and verify that Dock
 - 46 contract tests
 - 56 integration/other tests 
 
-- 167 tests, all green.
+  167 tests, all green.
 
 - Keeper for Slack completed
 - 4 prototype web pages for Keeper Desktop client
