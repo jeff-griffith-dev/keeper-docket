@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keeper — Item</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:#0e0f11; --bg-surface:#16181c; --bg-raised:#1e2127; --bg-hover:#252830;
+      --border:#2a2d35; --border-light:#343840;
+      --text-primary:#e8eaed; --text-secondary:#8b909a; --text-muted:#555a66;
+      --overdue:#e05252; --overdue-bg:#1f1214;
+      --due-soon:#e09052; --due-soon-bg:#1a1510;
+      --on-track:#52a882; --on-track-bg:#0f1a15;
+      --accent:#4a9eff; --accent-dim:#1a3a5c;
+      --carry-color:#a67cff; --carry-bg:#1a1530; --carry-border:#2a2040;
+      --font-sans:'IBM Plex Sans',sans-serif; --font-mono:'IBM Plex Mono',monospace;
+      --radius:4px; --radius-lg:8px;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html{font-size:14px;}
+    body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary);min-height:100vh;line-height:1.5;}
+    button{cursor:pointer;border:none;background:none;font:inherit;color:inherit;}
+    a{color:inherit;text-decoration:none;}
+    .shell{display:grid;grid-template-columns:220px 1fr;grid-template-rows:48px 1fr;min-height:100vh;}
+
+    /* topbar */
+    .topbar{grid-column:1/-1;display:flex;align-items:center;padding:0 20px;background:var(--bg-surface);border-bottom:1px solid var(--border);gap:16px;}
+    .topbar-logo{font-family:var(--font-mono);font-size:13px;font-weight:500;letter-spacing:.12em;color:var(--accent);text-transform:uppercase;}
+    .topbar-logo span{color:var(--text-muted);font-weight:400;}
+    .topbar-sep{width:1px;height:20px;background:var(--border);}
+    .topbar-breadcrumb{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:12px;}
+    .bc-link{color:var(--text-secondary);cursor:pointer;transition:color .1s;}
+    .bc-link:hover{color:var(--accent);}
+    .bc-sep{color:var(--text-muted);}
+    .bc-current{color:var(--text-primary);max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .topbar-right{margin-left:auto;display:flex;align-items:center;gap:12px;}
+    .topbar-user{font-size:12px;color:var(--text-secondary);}
+    .topbar-avatar{width:28px;height:28px;border-radius:50%;background:var(--accent-dim);border:1px solid var(--accent);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;color:var(--accent);font-weight:500;}
+
+    /* sidebar */
+    .sidebar{background:var(--bg-surface);border-right:1px solid var(--border);padding:16px 0;display:flex;flex-direction:column;gap:4px;}
+    .nav-section{padding:8px 16px 4px;font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);}
+    .nav-item{display:flex;align-items:center;gap:10px;padding:7px 16px;font-size:13px;color:var(--text-secondary);cursor:pointer;transition:background .1s,color .1s;border-left:2px solid transparent;}
+    .nav-item:hover{background:var(--bg-hover);color:var(--text-primary);}
+    .nav-item.active{color:var(--text-primary);border-left-color:var(--accent);background:var(--bg-hover);}
+    .nav-icon{font-size:14px;width:16px;text-align:center;flex-shrink:0;}
+    .sidebar-footer{margin-top:auto;padding:12px 16px;border-top:1px solid var(--border);}
+    .sidebar-footer-text{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);line-height:1.6;}
+
+    /* main */
+    .main{overflow-y:auto;display:flex;flex-direction:column;}
+
+    /* banner */
+    .item-banner{padding:20px 28px 16px;border-bottom:1px solid var(--border);background:var(--bg-surface);display:flex;flex-direction:column;gap:12px;}
+    .item-header-row{display:flex;align-items:flex-start;gap:16px;}
+    .item-title-block{flex:1;min-width:0;}
+    .item-title{font-size:18px;font-weight:600;letter-spacing:-.01em;line-height:1.3;}
+    .item-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:6px;}
+    .item-meta-tag{font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);}
+    .item-meta-tag .lbl{color:var(--text-muted);}
+    .meta-sep{color:var(--border-light);}
+
+    .status-badge{padding:4px 14px;border-radius:var(--radius);font-family:var(--font-mono);font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;flex-shrink:0;}
+    .badge-open    {background:var(--accent-dim);color:var(--accent);border:1px solid #1a3a5c;}
+    .badge-deferred{background:var(--carry-bg);color:var(--carry-color);border:1px solid var(--carry-border);}
+    .badge-done    {background:var(--on-track-bg);color:var(--on-track);border:1px solid #1a3a28;}
+    .badge-abandoned{background:var(--bg-raised);color:var(--text-muted);border:1px solid var(--border);}
+
+    .item-actions{display:flex;gap:8px;flex-shrink:0;}
+    .btn{padding:6px 14px;border-radius:var(--radius);font-size:12px;font-weight:500;transition:all .1s;}
+    .btn-ghost{color:var(--text-secondary);border:1px solid var(--border);}
+    .btn-ghost:hover{background:var(--bg-hover);color:var(--text-primary);border-color:var(--border-light);}
+    .btn-success{background:var(--on-track);color:white;}
+    .btn-success:hover{background:#42987a;}
+    .btn-danger{color:var(--overdue);border:1px solid var(--border);}
+    .btn-danger:hover{background:var(--overdue-bg);border-color:var(--overdue);}
+
+    .attrs-strip{display:flex;flex-wrap:wrap;gap:8px;}
+    .attr-pill{display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:var(--radius);background:var(--bg-raised);border:1px solid var(--border);font-family:var(--font-mono);font-size:11px;}
+    .attr-pill .al{color:var(--text-muted);}
+    .attr-pill .av{color:var(--text-primary);font-weight:500;}
+    .attr-pill .av.overdue {color:var(--overdue);}
+    .attr-pill .av.due-soon{color:var(--due-soon);}
+    .attr-pill .av.on-track{color:var(--on-track);}
+
+    /* chain bar */
+    .chain-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--carry-bg);border:1px solid var(--carry-border);border-radius:var(--radius);font-family:var(--font-mono);font-size:11px;}
+    .chain-label{color:var(--text-muted);white-space:nowrap;}
+    .chain-nodes{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+    .chain-node-btn{padding:2px 8px;border-radius:2px;background:#12102a;border:1px solid var(--carry-border);color:var(--carry-color);cursor:pointer;transition:background .1s;font-size:11px;font-family:var(--font-mono);}
+    .chain-node-btn:hover{background:#1e1a40;}
+    .chain-node-btn.current{background:var(--carry-color);color:var(--bg);font-weight:500;}
+    .chain-arrow{color:var(--text-muted);font-size:10px;}
+
+    /* content */
+    .content{padding:20px 28px;display:flex;flex-direction:column;gap:0;}
+    .section-header{display:flex;align-items:center;gap:12px;padding:0 0 12px;border-bottom:1px solid var(--border);}
+    .section-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);}
+    .section-actions{margin-left:auto;}
+    .sort-toggle{display:flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+    .sort-btn{padding:4px 12px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);background:var(--bg-raised);transition:all .1s;}
+    .sort-btn:first-child{border-right:1px solid var(--border);}
+    .sort-btn.active{background:var(--accent-dim);color:var(--accent);}
+    .sort-btn:hover:not(.active){background:var(--bg-hover);color:var(--text-secondary);}
+
+    /* timeline */
+    .timeline{display:flex;flex-direction:column;padding:16px 0;position:relative;}
+    .timeline::before{content:'';position:absolute;left:11px;top:32px;bottom:32px;width:1px;background:var(--border);}
+
+    .tl-node{display:flex;flex-direction:column;margin-bottom:4px;animation:fadeIn .18s ease both;}
+
+    .tl-node-header{display:flex;align-items:center;gap:14px;padding:10px 0 8px;cursor:pointer;}
+    .tl-node-header:hover .tl-meeting-name{color:var(--accent);}
+    .tl-dot-wrap{width:24px;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative;z-index:1;}
+    .tl-dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--bg);flex-shrink:0;}
+    .tl-dot.origin  {background:var(--carry-color);box-shadow:0 0 8px var(--carry-color);}
+    .tl-dot.carried {background:var(--accent);}
+    .tl-dot.current {background:var(--accent);box-shadow:0 0 8px var(--accent);}
+    .tl-dot.resolved{background:var(--on-track);}
+
+    .tl-node-info{flex:1;min-width:0;}
+    .tl-meeting-name{font-size:14px;font-weight:600;color:var(--text-primary);transition:color .1s;}
+    .tl-meeting-date{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);margin-top:1px;}
+
+    .tl-node-badges{display:flex;gap:6px;flex-shrink:0;}
+    .tl-badge{padding:2px 8px;border-radius:2px;font-family:var(--font-mono);font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;}
+    .tl-badge.origin  {background:var(--carry-bg);color:var(--carry-color);border:1px solid var(--carry-border);}
+    .tl-badge.carried {background:var(--accent-dim);color:var(--accent);border:1px solid #1a3a5c;}
+    .tl-badge.current {background:var(--accent-dim);color:var(--accent);border:1px solid #1a3a5c;}
+    .tl-badge.resolved{background:var(--on-track-bg);color:var(--on-track);border:1px solid #1a3a28;}
+
+    .tl-due{font-family:var(--font-mono);font-size:11px;white-space:nowrap;}
+    .tl-due.overdue {color:var(--overdue);font-weight:500;}
+    .tl-due.due-soon{color:var(--due-soon);}
+    .tl-due.on-track{color:var(--text-muted);}
+    .tl-due.no-date {color:var(--text-muted);}
+
+    /* node body */
+    .tl-node-body{margin-left:38px;border-left:1px solid var(--border);margin-bottom:12px;}
+
+    .tl-snapshot{padding:7px 14px;background:var(--bg-surface);border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);}
+
+    .tl-event{display:flex;align-items:center;gap:8px;padding:6px 14px;font-family:var(--font-mono);font-size:11px;color:var(--carry-color);background:var(--carry-bg);border-bottom:1px solid var(--carry-border);}
+
+    .tl-note{display:flex;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);transition:background .1s;}
+    .tl-note:last-child{border-bottom:none;}
+    .tl-note:hover{background:var(--bg-hover);}
+    .note-avatar{width:20px;height:20px;border-radius:50%;background:var(--bg-raised);border:1px solid var(--border-light);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:9px;color:var(--text-muted);flex-shrink:0;margin-top:1px;}
+    .note-body{flex:1;min-width:0;}
+    .note-header{display:flex;align-items:baseline;gap:8px;margin-bottom:3px;}
+    .note-author{font-size:12px;font-weight:500;color:var(--text-secondary);}
+    .note-date{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);}
+    .note-phase{margin-left:auto;font-family:var(--font-mono);font-size:10px;padding:1px 6px;border-radius:2px;background:var(--bg-raised);color:var(--text-muted);border:1px solid var(--border);text-transform:uppercase;letter-spacing:.06em;}
+    .note-text{font-size:13px;color:var(--text-primary);line-height:1.5;}
+
+    .tl-no-notes{padding:8px 14px;font-size:12px;color:var(--text-muted);font-style:italic;font-family:var(--font-mono);}
+
+    /* add note */
+    .add-note-panel{margin:16px 0 0 38px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;display:none;}
+    .add-note-panel.visible{display:block;}
+    .add-note-header{padding:8px 14px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);border-bottom:1px solid var(--border);}
+    .add-note-textarea{width:100%;padding:10px 14px;background:var(--bg);border:none;outline:none;font-family:var(--font-sans);font-size:13px;color:var(--text-primary);resize:none;min-height:72px;line-height:1.5;}
+    .add-note-textarea::placeholder{color:var(--text-muted);}
+    .add-note-footer{padding:8px 14px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;}
+    .note-cancel-btn{padding:5px 12px;border-radius:var(--radius);font-size:12px;font-family:var(--font-mono);border:1px solid var(--border);color:var(--text-secondary);transition:all .1s;}
+    .note-cancel-btn:hover{background:var(--bg-hover);color:var(--text-primary);}
+    .note-submit-btn{padding:5px 14px;border-radius:var(--radius);font-size:12px;font-family:var(--font-mono);background:var(--accent);color:white;transition:background .1s;}
+    .note-submit-btn:hover{background:#3a8eef;}
+
+    .state-message{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;gap:12px;color:var(--text-muted);}
+    .state-icon{font-size:32px;opacity:.4;}
+    .state-text{font-size:13px;font-family:var(--font-mono);}
+
+    ::-webkit-scrollbar{width:6px;}
+    ::-webkit-scrollbar-track{background:var(--bg);}
+    ::-webkit-scrollbar-thumb{background:var(--border-light);border-radius:3px;}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="topbar">
+    <div class="topbar-logo">KEEPER <span>/ docket</span></div>
+    <div class="topbar-sep"></div>
+    <div class="topbar-breadcrumb">
+      <span class="bc-link" onclick="go('/app/series')">Series</span>
+      <span class="bc-sep">/</span>
+      <span class="bc-link" id="bc-series">—</span>
+      <span class="bc-sep">/</span>
+      <span class="bc-link" id="bc-meeting">—</span>
+      <span class="bc-sep">/</span>
+      <span class="bc-current" id="bc-item">—</span>
+    </div>
+    <div class="topbar-right">
+      <span class="topbar-user" id="topbar-user">—</span>
+      <div class="topbar-avatar" id="topbar-avatar">—</div>
+    </div>
+  </header>
+
+  <nav class="sidebar">
+    <div class="nav-section">Workspace</div>
+    <a class="nav-item" href="/app/attention"><span class="nav-icon">⊙</span>My Attention</a>
+    <a class="nav-item active" href="/app/series"><span class="nav-icon">◫</span>Series</a>
+    <div class="nav-section">Quick Access</div>
+    <a class="nav-item" href="/app/attention"><span class="nav-icon">◈</span>All My Items</a>
+    <div class="nav-section">Actions</div>
+    <a class="nav-item" href="/app/series"><span class="nav-icon">+</span>New Series</a>
+    <div class="sidebar-footer">
+      <div class="sidebar-footer-text" id="sidebar-status">keeper v0.1.0<br>connecting…</div>
+    </div>
+  </nav>
+
+  <main class="main" id="main">
+    <div class="state-message">
+      <span class="state-icon">⟳</span>
+      <span class="state-text">Loading…</span>
+    </div>
+  </main>
+</div>
+
+<script>
+  const API     = '/api';
+  const USER_ID = '00000000-0000-0000-0000-000000000001';
+  const TODAY   = new Date(); TODAY.setHours(0,0,0,0);
+
+  let chain = [];
+  let sort  = localStorage.getItem('keeper-history-sort') || 'newest';
+
+  const itemId = new URLSearchParams(window.location.search).get('id');
+  if (!itemId) { showError('No item ID provided.'); }
+  else { loadUser(); loadHistory(); }
+
+  function go(path) { window.location.href = path; }
+
+  async function loadUser() {
+    try {
+      const r = await fetch(`${API}/users/${USER_ID}`);
+      if (!r.ok) return;
+      const u = await r.json();
+      const ini = u.displayName.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+      document.getElementById('topbar-user').textContent   = u.displayName;
+      document.getElementById('topbar-avatar').textContent = ini;
+      document.getElementById('sidebar-status').innerHTML  = 'keeper v0.1.0<br>docket api · connected';
+    } catch {}
+  }
+
+  async function loadHistory() {
+    try {
+      const r = await fetch(`${API}/action-items/${itemId}/history`);
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      chain = await r.json();
+      if (!chain.length) throw new Error('empty history');
+      const cur = chain[chain.length - 1];
+      document.getElementById('bc-series').textContent  = cur.seriesName;
+      document.getElementById('bc-series').onclick      = () => go('/app/series');
+      document.getElementById('bc-meeting').textContent = fmtShort(cur.minutesScheduledFor);
+      document.getElementById('bc-meeting').onclick     = () => go(`/app/minutes?id=${cur.minutesId}`);
+      document.getElementById('bc-item').textContent    = cur.title;
+      document.title = 'Keeper — ' + cur.title;
+      render();
+    } catch(e) { showError('Could not load item: ' + e.message); }
+  }
+
+  function render() {
+    const cur     = chain[chain.length - 1];
+    const origin  = chain[0];
+    const urgency = classify(cur.dueDate);
+    const priLbl  = {4:'CRIT',3:'HIGH',2:'MED',1:'LOW'}[cur.priority] || 'MED';
+    const stCls   = cur.status.toLowerCase();
+    const isOpen  = stCls === 'open' || stCls === 'deferred';
+
+    // Chain navigation bar (only if chain > 1)
+    const chainBar = chain.length > 1 ? `
+      <div class="chain-bar">
+        <span class="chain-label">◎ lineage</span>
+        <div class="chain-nodes">
+          ${chain.map((n,i) => {
+            const isCur = i === chain.length - 1;
+            return `<span class="chain-node-btn ${isCur?'current':''}"
+                          onclick="scrollToNode('nd-${i}')">${fmtShort(n.minutesScheduledFor)}${isCur?' · now':''}</span>
+                    ${i < chain.length-1 ? '<span class="chain-arrow">→</span>' : ''}`;
+          }).join('')}
+        </div>
+      </div>` : '';
+
+    const actions = isOpen ? `
+      <button class="btn btn-ghost" onclick="openNotePanel()">+ Note</button>
+      <button class="btn btn-ghost btn-danger" onclick="deferItem()">Defer</button>
+      <button class="btn btn-success" onclick="markDone()">✓ Mark done</button>
+    ` : `<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">
+           ${stCls === 'done' ? '✓ Completed' : '✕ Abandoned'}
+         </span>`;
+
+    document.getElementById('main').innerHTML = `
+      <div class="item-banner">
+        <div class="item-header-row">
+          <div class="item-title-block">
+            <div class="item-title">${esc(cur.title)}</div>
+            <div class="item-meta">
+              <span class="item-meta-tag"><span class="lbl">series</span> ${esc(cur.seriesName)}</span>
+              <span class="meta-sep">·</span>
+              <span class="item-meta-tag"><span class="lbl">topic</span> ${esc(cur.topicTitle)}</span>
+              <span class="meta-sep">·</span>
+              <span class="item-meta-tag"><span class="lbl">responsible</span> ${esc(resolveUser(cur.responsibleId))}</span>
+            </div>
+          </div>
+          <span class="status-badge badge-${stCls}">${cur.status}</span>
+          <div class="item-actions">${actions}</div>
+        </div>
+        <div class="attrs-strip">
+          ${cur.dueDate ? `<div class="attr-pill"><span class="al">due</span><span class="av ${urgency}">${fmtDue(cur.dueDate)}</span></div>` : ''}
+          <div class="attr-pill"><span class="al">priority</span><span class="av">${priLbl}</span></div>
+          <div class="attr-pill"><span class="al">origin</span><span class="av">${fmtShort(origin.minutesScheduledFor)}</span></div>
+          <div class="attr-pill"><span class="al">carried</span><span class="av">${chain.length === 1 ? 'first meeting' : chain.length + ' meetings'}</span></div>
+          ${cur.assignedInAbsentia ? `<div class="attr-pill"><span class="av" style="color:var(--text-muted)">assigned in absentia</span></div>` : ''}
+        </div>
+        ${chainBar}
+      </div>
+      <div class="content">
+        <div class="section-header">
+          <span class="section-title">History</span>
+          <div class="section-actions">
+            <div class="sort-toggle">
+              <button class="sort-btn ${sort==='oldest'?'active':''}" id="btn-oldest" onclick="setSort('oldest')">oldest first</button>
+              <button class="sort-btn ${sort==='newest'?'active':''}" id="btn-newest" onclick="setSort('newest')">newest first</button>
+            </div>
+          </div>
+        </div>
+        <div class="timeline" id="timeline">${renderTimeline()}</div>
+        <div class="add-note-panel" id="note-panel">
+          <div class="add-note-header">Add note · ${esc(cur.seriesName)} · ${fmtShort(cur.minutesScheduledFor)}</div>
+          <textarea class="add-note-textarea" id="note-text" placeholder="What's the current status or context?"></textarea>
+          <div class="add-note-footer">
+            <button class="note-cancel-btn" onclick="closeNotePanel()">Cancel</button>
+            <button class="note-submit-btn" onclick="submitNote()">Add note</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderTimeline() {
+    const ordered = sort === 'newest' ? [...chain].reverse() : [...chain];
+    return ordered.map((node, di) => {
+      const ci      = sort === 'newest' ? chain.length - 1 - di : di;
+      const isOrig  = ci === 0;
+      const isCur   = ci === chain.length - 1;
+      const dotCls  = isCur ? (node.status==='Done'?'resolved':'current') : isOrig ? 'origin' : 'carried';
+      const bdgCls  = isCur ? 'current' : isOrig ? 'origin' : 'carried';
+      const bdgLbl  = isCur ? 'Current' : isOrig ? 'Origin' : 'Carried';
+      const urg     = classify(node.dueDate);
+      const due     = node.dueDate ? fmtDue(node.dueDate) : 'no due date';
+
+      const carriedFrom = ci > 0 ? `
+        <div class="tl-event">↩ Carried forward from ${fmtShort(chain[ci-1].minutesScheduledFor)}</div>` : '';
+      const deferredTo = ci < chain.length - 1 ? `
+        <div class="tl-event" style="border-top:1px solid var(--carry-border)">→ Deferred · moved to ${fmtShort(chain[ci+1].minutesScheduledFor)}</div>` : '';
+
+      const notesHtml = node.notes.length
+        ? node.notes.map(n => `
+          <div class="tl-note">
+            <div class="note-avatar">${ini(n.author?.displayName||'?')}</div>
+            <div class="note-body">
+              <div class="note-header">
+                <span class="note-author">${esc(n.author?.displayName||'Unknown')}</span>
+                <span class="note-date">${fmtDateTime(n.createdAt)}</span>
+                <span class="note-phase">${n.phase}</span>
+              </div>
+              <div class="note-text">${esc(n.text)}</div>
+            </div>
+          </div>`).join('')
+        : `<div class="tl-no-notes">No notes at this meeting.</div>`;
+
+      return `
+        <div class="tl-node" id="nd-${ci}" style="animation-delay:${di*.05}s">
+          <div class="tl-node-header" onclick="go('/app/minutes?id=${node.minutesId}')">
+            <div class="tl-dot-wrap"><span class="tl-dot ${dotCls}"></span></div>
+            <div class="tl-node-info">
+              <div class="tl-meeting-name">${esc(node.seriesName)} · ${esc(node.topicTitle)}</div>
+              <div class="tl-meeting-date">${fmtShort(node.minutesScheduledFor)} · ${node.minutesStatus.toLowerCase()}</div>
+            </div>
+            <div class="tl-node-badges"><span class="tl-badge ${bdgCls}">${bdgLbl}</span></div>
+            <span class="tl-due ${urg}">${due}</span>
+          </div>
+          <div class="tl-node-body">
+            <div class="tl-snapshot">${esc(resolveUser(node.responsibleId))} · ${due}</div>
+            ${carriedFrom}
+            ${notesHtml}
+            ${deferredTo}
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function setSort(order) {
+    sort = order;
+    localStorage.setItem('keeper-history-sort', order);
+    document.getElementById('btn-oldest').classList.toggle('active', order==='oldest');
+    document.getElementById('btn-newest').classList.toggle('active', order==='newest');
+    document.getElementById('timeline').innerHTML = renderTimeline();
+  }
+
+  function scrollToNode(id) {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior:'smooth', block:'start' });
+  }
+
+  function openNotePanel() {
+    const p = document.getElementById('note-panel');
+    p.classList.add('visible');
+    document.getElementById('note-text').focus();
+    p.scrollIntoView({ behavior:'smooth', block:'nearest' });
+  }
+
+  function closeNotePanel() {
+    document.getElementById('note-panel').classList.remove('visible');
+    document.getElementById('note-text').value = '';
+  }
+
+  async function submitNote() {
+    const text = document.getElementById('note-text').value.trim();
+    if (!text) return;
+    try {
+      const r = await fetch(`${API}/action-items/${itemId}/notes`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ text })
+      });
+      if (!r.ok) throw new Error(await r.text());
+      closeNotePanel();
+      loadHistory();
+    } catch(e) { alert('Could not add note: ' + e.message); }
+  }
+
+  async function markDone() {
+    if (!confirm('Mark this item as done?')) return;
+    try {
+      const r = await fetch(`${API}/action-items/${itemId}`, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ status:'done' })
+      });
+      if (!r.ok) throw new Error(await r.text());
+      loadHistory();
+    } catch(e) { alert('Could not mark done: ' + e.message); }
+  }
+
+  async function deferItem() {
+    try {
+      const r = await fetch(`${API}/action-items/${itemId}`, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ status:'deferred' })
+      });
+      if (!r.ok) throw new Error(await r.text());
+      loadHistory();
+    } catch(e) { alert('Could not defer: ' + e.message); }
+  }
+
+  // ── utilities ──
+  function resolveUser(id) {
+    if (!id) return 'unassigned';
+    if (id === USER_ID) return 'Dev User (Stub)';
+    return id.slice(0,8) + '…';
+  }
+  function ini(name) { return name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2); }
+
+  function parseLocal(str) {
+    if (!str) return null;
+    if (str.includes('T')) return new Date(str);
+    const [y,m,d] = str.split('-').map(Number);
+    const dt = new Date(y,m-1,d); dt.setHours(0,0,0,0); return dt;
+  }
+  function classify(ds) {
+    if (!ds) return 'no-date';
+    const due = parseLocal(ds); due.setHours(0,0,0,0);
+    const diff = Math.floor((due-TODAY)/86400000);
+    if (diff<=0) return 'overdue';
+    if (diff<=7) return 'due-soon';
+    return 'on-track';
+  }
+  function fmtDue(ds) {
+    if (!ds) return 'no date';
+    const due = parseLocal(ds); due.setHours(0,0,0,0);
+    const diff = Math.floor((due-TODAY)/86400000);
+    if (diff===0)  return 'due today';
+    if (diff===1)  return 'tomorrow';
+    if (diff===-1) return 'yesterday · overdue';
+    if (diff<0)    return `${Math.abs(diff)} days ago · overdue`;
+    if (diff<=7)   return `in ${diff} days`;
+    const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${M[due.getMonth()]} ${due.getDate()}`;
+  }
+  function fmtShort(str) {
+    const d=new Date(str);
+    const D=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${D[d.getDay()]} ${d.getDate()} ${M[d.getMonth()]} ${d.getFullYear()}`;
+  }
+  function fmtDateTime(str) {
+    const d=new Date(str);
+    const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${d.getDate()} ${M[d.getMonth()]} ${d.getFullYear()} · ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  }
+  function showError(msg) {
+    document.getElementById('main').innerHTML=`<div class="state-message"><span class="state-icon">⚠</span><span class="state-text" style="color:var(--overdue)">${msg}</span></div>`;
+  }
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+</script>
+</body>
+</html>

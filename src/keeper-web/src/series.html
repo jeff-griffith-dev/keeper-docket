@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keeper — Series</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg:           #0e0f11;
+      --bg-surface:   #16181c;
+      --bg-raised:    #1e2127;
+      --bg-hover:     #252830;
+      --border:       #2a2d35;
+      --border-light: #343840;
+
+      --text-primary:   #e8eaed;
+      --text-secondary: #8b909a;
+      --text-muted:     #555a66;
+
+      --overdue:      #e05252;
+      --overdue-bg:   #1f1214;
+      --due-soon:     #e09052;
+      --due-soon-bg:  #1a1510;
+      --on-track:     #52a882;
+      --on-track-bg:  #0f1a15;
+
+      --accent:       #4a9eff;
+      --accent-dim:   #1a3a5c;
+
+      --carry-color:  #a67cff;
+      --carry-bg:     #1a1530;
+      --carry-border: #2a2040;
+
+      --font-sans: 'IBM Plex Sans', sans-serif;
+      --font-mono: 'IBM Plex Mono', monospace;
+      --radius:    4px;
+      --radius-lg: 8px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    button { cursor: pointer; border: none; background: none; font: inherit; color: inherit; }
+    a { color: inherit; text-decoration: none; }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      grid-template-rows: 48px 1fr;
+      min-height: 100vh;
+    }
+
+    /* ── Top bar ────────────────────────────────────────────────── */
+    .topbar {
+      grid-column: 1 / -1;
+      display: flex; align-items: center;
+      padding: 0 20px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      gap: 16px;
+    }
+    .topbar-logo {
+      font-family: var(--font-mono); font-size: 13px; font-weight: 500;
+      letter-spacing: 0.12em; color: var(--accent); text-transform: uppercase;
+    }
+    .topbar-logo span { color: var(--text-muted); font-weight: 400; }
+    .topbar-sep { width: 1px; height: 20px; background: var(--border); }
+    .topbar-context { font-size: 12px; color: var(--text-secondary); font-family: var(--font-mono); }
+    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+    .topbar-user { font-size: 12px; color: var(--text-secondary); }
+    .topbar-avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--accent-dim); border: 1px solid var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-mono); font-size: 11px; color: var(--accent); font-weight: 500;
+    }
+
+    /* ── Sidebar ────────────────────────────────────────────────── */
+    .sidebar {
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border);
+      padding: 16px 0;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .nav-section {
+      padding: 8px 16px 4px;
+      font-family: var(--font-mono); font-size: 10px;
+      letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted);
+    }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 16px; font-size: 13px; color: var(--text-secondary);
+      cursor: pointer; transition: background 0.1s, color 0.1s;
+      border-left: 2px solid transparent;
+    }
+    .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .nav-item.active { color: var(--text-primary); border-left-color: var(--accent); background: var(--bg-hover); }
+    .nav-icon { font-size: 14px; width: 16px; text-align: center; flex-shrink: 0; }
+    .nav-badge {
+      margin-left: auto; font-family: var(--font-mono); font-size: 10px;
+      padding: 1px 6px; border-radius: 10px;
+      background: var(--overdue); color: white; font-weight: 500;
+    }
+    .nav-badge.warn { background: var(--due-soon); }
+    .nav-badge.neutral { background: var(--bg-raised); color: var(--text-muted); border: 1px solid var(--border); }
+    .sidebar-footer { margin-top: auto; padding: 12px 16px; border-top: 1px solid var(--border); }
+    .sidebar-footer-text { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); line-height: 1.6; }
+
+    /* ── Main ───────────────────────────────────────────────────── */
+    .main { overflow-y: auto; padding: 24px 28px; display: flex; flex-direction: column; gap: 20px; }
+
+    .page-header { display: flex; align-items: baseline; gap: 16px; }
+    .page-title { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+    .page-subtitle { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+    .page-actions { margin-left: auto; display: flex; gap: 8px; }
+    .btn {
+      padding: 6px 14px; border-radius: var(--radius);
+      font-size: 12px; font-weight: 500; transition: all 0.1s;
+    }
+    .btn-ghost { color: var(--text-secondary); border: 1px solid var(--border); }
+    .btn-ghost:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--border-light); }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: #3a8eef; }
+
+    /* ── Tabs ───────────────────────────────────────────────────── */
+    .tabs { display: flex; border-bottom: 1px solid var(--border); }
+    .tab {
+      padding: 8px 20px; font-size: 13px; color: var(--text-secondary);
+      cursor: pointer; border-bottom: 2px solid transparent;
+      margin-bottom: -1px; transition: color 0.1s;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .tab:hover { color: var(--text-primary); }
+    .tab.active { color: var(--text-primary); border-bottom-color: var(--accent); }
+    .tab-count {
+      font-family: var(--font-mono); font-size: 10px;
+      padding: 1px 6px; border-radius: 10px;
+      background: var(--bg-raised); color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .tab.active .tab-count { background: var(--accent-dim); color: var(--accent); border-color: var(--accent-dim); }
+
+    /* ── Series list ────────────────────────────────────────────── */
+    .series-list { display: flex; flex-direction: column; gap: 8px; }
+
+    /* ── Series card ────────────────────────────────────────────── */
+    .series-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      transition: border-color 0.15s;
+      animation: fadeIn 0.2s ease both;
+    }
+    .series-card:hover { border-color: var(--border-light); }
+    .series-card.has-draft { border-color: #2a2210; }
+    .series-card.has-draft:hover { border-color: #3a3010; }
+
+    .series-header {
+      display: grid;
+      grid-template-columns: 28px 1fr auto auto auto auto;
+      align-items: center; gap: 12px;
+      padding: 14px 16px; cursor: pointer;
+      transition: background 0.1s;
+    }
+    .series-header:hover { background: var(--bg-hover); }
+
+    .expand-btn {
+      width: 20px; height: 20px; border-radius: var(--radius);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-muted); font-size: 11px;
+      transition: transform 0.2s, color 0.1s; flex-shrink: 0;
+    }
+    .series-card.expanded .expand-btn { transform: rotate(90deg); color: var(--accent); }
+
+    .series-info { min-width: 0; }
+    .series-name {
+      font-size: 14px; font-weight: 500; color: var(--text-primary);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .series-project {
+      font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .series-stat { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; white-space: nowrap; }
+    .series-stat-value { font-family: var(--font-mono); font-size: 13px; font-weight: 500; color: var(--text-primary); }
+    .series-stat-value.alert { color: var(--overdue); }
+    .series-stat-value.warn  { color: var(--due-soon); }
+    .series-stat-value.good  { color: var(--on-track); }
+    .series-stat-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+    .series-status-badge {
+      padding: 3px 10px; border-radius: 2px;
+      font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+      text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap;
+    }
+    .badge-draft    { background: #1f1810; color: var(--due-soon); border: 1px solid #2e2210; }
+    .badge-active   { background: var(--bg-raised); color: var(--text-muted); border: 1px solid var(--border); }
+    .badge-archived { background: var(--bg-raised); color: var(--text-muted); border: 1px solid var(--border); opacity: 0.6; }
+
+    .series-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.1s; }
+    .series-header:hover .series-actions { opacity: 1; }
+    .series-action-btn {
+      padding: 3px 10px; border-radius: var(--radius);
+      font-size: 11px; font-family: var(--font-mono);
+      border: 1px solid var(--border); color: var(--text-secondary);
+      background: var(--bg-raised); transition: all 0.1s; white-space: nowrap;
+    }
+    .series-action-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+    /* ── Minutes list ───────────────────────────────────────────── */
+    .minutes-list { display: none; border-top: 1px solid var(--border); }
+    .series-card.expanded .minutes-list { display: block; }
+
+    .minutes-loading {
+      padding: 12px 16px;
+      font-family: var(--font-mono); font-size: 11px;
+      color: var(--text-muted); font-style: italic;
+    }
+
+    .minutes-row {
+      display: grid;
+      grid-template-columns: 28px 160px 1fr auto auto auto;
+      align-items: center; gap: 12px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer; transition: background 0.1s;
+      background: var(--bg);
+    }
+    .minutes-row:last-child { border-bottom: none; }
+    .minutes-row:hover { background: var(--bg-hover); }
+    .minutes-row.is-draft { background: #16140e; }
+    .minutes-row.is-draft:hover { background: #1e1c10; }
+    .minutes-row.is-abandoned { opacity: 0.5; }
+
+    .timeline-col { display: flex; align-items: center; justify-content: center; }
+    .timeline-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .timeline-dot.draft     { background: var(--due-soon); box-shadow: 0 0 6px var(--due-soon); }
+    .timeline-dot.finalized { background: var(--on-track); }
+    .timeline-dot.abandoned { background: var(--text-muted); }
+
+    .minutes-date { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+    .minutes-date .day-label { color: var(--text-muted); font-size: 10px; }
+
+    .minutes-summary { min-width: 0; }
+    .minutes-title { font-size: 13px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .minutes-title.draft-label { color: var(--due-soon); }
+    .minutes-chips { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+    .chip {
+      font-family: var(--font-mono); font-size: 10px;
+      padding: 1px 7px; border-radius: 2px; white-space: nowrap;
+    }
+    .chip-topics   { background: var(--bg-raised); color: var(--text-muted); border: 1px solid var(--border); }
+    .chip-items    { background: var(--bg-raised); color: var(--text-muted); border: 1px solid var(--border); }
+    .chip-items.has-open { background: var(--overdue-bg); color: var(--overdue); border-color: #3a1515; }
+
+    .minutes-status { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; }
+    .minutes-status.draft     { color: var(--due-soon); }
+    .minutes-status.finalized { color: var(--on-track); }
+    .minutes-status.abandoned { color: var(--text-muted); }
+
+    .minutes-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.1s; }
+    .minutes-row:hover .minutes-actions { opacity: 1; }
+    .minutes-action-btn {
+      padding: 2px 8px; border-radius: var(--radius);
+      font-size: 11px; font-family: var(--font-mono);
+      border: 1px solid var(--border); color: var(--text-secondary);
+      background: var(--bg-raised); transition: all 0.1s; white-space: nowrap;
+    }
+    .minutes-action-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+    .minutes-action-btn.finalize:hover { border-color: var(--on-track); color: var(--on-track); background: var(--on-track-bg); }
+
+    /* ── Archived panel dimming ─────────────────────────────────── */
+    #archived-panel .series-card { opacity: 0.75; }
+    #archived-panel .series-card:hover { opacity: 1; }
+
+    /* ── States ─────────────────────────────────────────────────── */
+    .state-message {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; padding: 60px 20px; gap: 12px;
+      color: var(--text-muted);
+    }
+    .state-icon { font-size: 32px; opacity: 0.4; }
+    .state-text { font-size: 13px; font-family: var(--font-mono); }
+
+    /* ── Context menu ───────────────────────────────────────────── */
+    .context-menu {
+      position: fixed; background: var(--bg-raised);
+      border: 1px solid var(--border-light); border-radius: var(--radius-lg);
+      padding: 4px; min-width: 190px; z-index: 1000;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4); display: none;
+    }
+    .context-menu.visible { display: block; }
+    .ctx-section { padding: 4px 8px 2px; font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+    .ctx-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--radius); font-size: 12px; color: var(--text-secondary); cursor: pointer; transition: background 0.1s, color 0.1s; }
+    .ctx-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .ctx-item.destructive { color: var(--overdue); }
+    .ctx-item.destructive:hover { background: var(--overdue-bg); }
+    .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
+    .ctx-icon { font-size: 13px; width: 16px; text-align: center; }
+
+    /* ── Scrollbar ──────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+
+<body>
+<div class="shell">
+
+  <header class="topbar">
+    <div class="topbar-logo">KEEPER <span>/ docket</span></div>
+    <div class="topbar-sep"></div>
+    <div class="topbar-context">series</div>
+    <div class="topbar-right">
+      <span class="topbar-user" id="topbar-user">—</span>
+      <div class="topbar-avatar" id="topbar-avatar">—</div>
+    </div>
+  </header>
+
+  <nav class="sidebar">
+    <div class="nav-section">Workspace</div>
+    <a class="nav-item" href="/app/attention">
+      <span class="nav-icon">⊙</span>My Attention
+    </a>
+    <a class="nav-item active" href="/app/series">
+      <span class="nav-icon">◫</span>Series
+      <span class="nav-badge neutral" id="nav-series-badge">—</span>
+    </a>
+    <div class="nav-section">Quick Access</div>
+    <a class="nav-item" href="/app/attention">
+      <span class="nav-icon">◈</span>All My Items
+    </a>
+    <div class="nav-section">Actions</div>
+    <div class="nav-item" onclick="newSeries()">
+      <span class="nav-icon">+</span>New Series
+    </div>
+    <div class="sidebar-footer">
+      <div class="sidebar-footer-text" id="sidebar-status">
+        keeper v0.1.0<br>connecting…
+      </div>
+    </div>
+  </nav>
+
+  <main class="main">
+
+    <div class="page-header">
+      <h1 class="page-title">Series</h1>
+      <span class="page-subtitle" id="page-subtitle">loading…</span>
+      <div class="page-actions">
+        <button class="btn btn-primary" onclick="newSeries()">+ New Series</button>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" id="tab-active" onclick="switchTab('active')">
+        Active <span class="tab-count" id="tab-active-count">—</span>
+      </div>
+      <div class="tab" id="tab-archived" onclick="switchTab('archived')">
+        Archived <span class="tab-count" id="tab-archived-count">—</span>
+      </div>
+    </div>
+
+    <div id="active-panel">
+      <div class="series-list" id="active-list">
+        <div class="state-message">
+          <span class="state-icon">⟳</span>
+          <span class="state-text">Loading…</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="archived-panel" style="display:none">
+      <div class="series-list" id="archived-list">
+        <div class="state-message">
+          <span class="state-icon">⟳</span>
+          <span class="state-text">Loading…</span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Series context menu -->
+<div class="context-menu" id="series-ctx">
+  <div class="ctx-section">Series</div>
+  <div class="ctx-item" onclick="ctxSeries('open')"><span class="ctx-icon">⊞</span> Open series</div>
+  <div class="ctx-item" onclick="ctxSeries('new-meeting')"><span class="ctx-icon">+</span> New meeting</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item destructive" onclick="ctxSeries('archive')"><span class="ctx-icon">▣</span> Archive series</div>
+</div>
+
+<!-- Minutes context menu -->
+<div class="context-menu" id="minutes-ctx">
+  <div class="ctx-section">Meeting</div>
+  <div class="ctx-item" onclick="ctxMinutes('open')"><span class="ctx-icon">⊞</span> Open meeting</div>
+  <div class="ctx-item" id="ctx-finalize-btn" onclick="ctxMinutes('finalize')"><span class="ctx-icon">✓</span> Finalize</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item destructive" onclick="ctxMinutes('abandon')"><span class="ctx-icon">✕</span> Abandon</div>
+</div>
+
+<script>
+  const API     = '/api';
+  const USER_ID = '00000000-0000-0000-0000-000000000001';
+
+  let activeSeries   = [];
+  let archivedSeries = [];
+  let minutesCache   = {};       // seriesId → minutes array
+  let currentTab     = 'active';
+  let ctxSeriesId    = null;
+  let ctxMinutesId   = null;
+  let ctxMinutesStat = null;
+
+  // ── Boot ───────────────────────────────────────────────────────
+  loadUser();
+  loadSeries();
+
+  // ── Load user ──────────────────────────────────────────────────
+  async function loadUser() {
+    try {
+      const r = await fetch(`${API}/users/${USER_ID}`);
+      if (!r.ok) return;
+      const u = await r.json();
+      const initials = u.displayName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2);
+      document.getElementById('topbar-user').textContent    = u.displayName;
+      document.getElementById('topbar-avatar').textContent  = initials;
+      document.getElementById('sidebar-status').innerHTML   = `keeper v0.1.0<br>docket api · connected`;
+    } catch {
+      document.getElementById('sidebar-status').innerHTML =
+        `keeper v0.1.0<br><span style="color:var(--overdue)">docket api · error</span>`;
+    }
+  }
+
+  // ── Load all series ────────────────────────────────────────────
+  async function loadSeries() {
+    try {
+      const [activeRes, archivedRes] = await Promise.all([
+        fetch(`${API}/series`),
+        fetch(`${API}/series?status=archived`)
+      ]);
+
+      activeSeries   = activeRes.ok   ? await activeRes.json()   : [];
+      archivedSeries = archivedRes.ok ? await archivedRes.json() : [];
+
+      const total = activeSeries.length + archivedSeries.length;
+      document.getElementById('nav-series-badge').textContent    = activeSeries.length;
+      document.getElementById('tab-active-count').textContent    = activeSeries.length;
+      document.getElementById('tab-archived-count').textContent  = archivedSeries.length;
+      document.getElementById('page-subtitle').textContent       =
+        `${activeSeries.length} active · ${archivedSeries.length} archived`;
+
+      renderSeriesList('active-list',   activeSeries,   false);
+      renderSeriesList('archived-list', archivedSeries, true);
+
+    } catch(e) {
+      document.getElementById('active-list').innerHTML = `
+        <div class="state-message">
+          <span class="state-icon">⚠</span>
+          <span class="state-text" style="color:var(--overdue)">Could not load series: ${e.message}</span>
+        </div>`;
+    }
+  }
+
+  // ── Render a series list ───────────────────────────────────────
+  function renderSeriesList(containerId, series, isArchived) {
+    const container = document.getElementById(containerId);
+
+    if (series.length === 0) {
+      container.innerHTML = `
+        <div class="state-message">
+          <span class="state-icon">${isArchived ? '▣' : '◫'}</span>
+          <span class="state-text">${isArchived ? 'No archived series.' : 'No active series yet.'}</span>
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = series.map((s, i) => renderSeriesCard(s, isArchived, i)).join('');
+  }
+
+  // ── Render a single series card ────────────────────────────────
+  function renderSeriesCard(s, isArchived, index) {
+    const statusBadge = isArchived
+      ? `<span class="series-status-badge badge-archived">Archived</span>`
+      : `<span class="series-status-badge badge-active">Active</span>`;
+
+    const project = s.project
+      ? escHtml(s.project)
+      : `<span style="color:var(--text-muted)">no project tag</span>`;
+
+    const createdDate = formatDate(s.createdAt);
+
+    return `
+      <div class="series-card" id="sc-${s.id}" style="animation-delay:${index * 0.04}s">
+        <div class="series-header"
+             onclick="toggleSeries('${s.id}', ${isArchived})"
+             oncontextmenu="showSeriesCtx(event,'${s.id}',${isArchived})">
+          <span class="expand-btn">▶</span>
+          <div class="series-info">
+            <div class="series-name">${escHtml(s.name)}</div>
+            <div class="series-project">${project} · created ${createdDate}</div>
+          </div>
+          <div class="series-stat">
+            <span class="series-stat-value" id="sc-topics-${s.id}">—</span>
+            <span class="series-stat-label">meetings</span>
+          </div>
+          <div class="series-stat">
+            <span class="series-stat-value" id="sc-items-${s.id}">—</span>
+            <span class="series-stat-label">open items</span>
+          </div>
+          ${statusBadge}
+          <div class="series-actions">
+            <button class="series-action-btn"
+                    onclick="openSeries(event,'${s.id}')">open</button>
+            ${!isArchived ? `<button class="series-action-btn"
+                    onclick="newMeeting(event,'${s.id}')">+ meeting</button>` : ''}
+          </div>
+        </div>
+        <div class="minutes-list" id="ml-${s.id}">
+          <div class="minutes-loading">Loading meetings…</div>
+        </div>
+      </div>`;
+  }
+
+  // ── Toggle accordion ───────────────────────────────────────────
+  async function toggleSeries(seriesId, isArchived) {
+    const card = document.getElementById(`sc-${seriesId}`);
+    const isExpanded = card.classList.contains('expanded');
+
+    if (isExpanded) {
+      card.classList.remove('expanded');
+      return;
+    }
+
+    card.classList.add('expanded');
+
+    // Load minutes if not cached
+    if (!minutesCache[seriesId]) {
+      await loadMinutes(seriesId);
+    }
+    renderMinutes(seriesId);
+  }
+
+  // ── Load minutes for a series ──────────────────────────────────
+  async function loadMinutes(seriesId) {
+    try {
+      const r = await fetch(`${API}/series/${seriesId}/minutes`);
+      if (!r.ok) throw new Error(`${r.status}`);
+      minutesCache[seriesId] = await r.json();
+
+      // Update the open items count on the series card
+      const totalOpen = minutesCache[seriesId]
+        .reduce((sum, m) => sum + m.openActionItemCount, 0);
+      const itemEl = document.getElementById(`sc-items-${seriesId}`);
+      if (itemEl) {
+        itemEl.textContent = totalOpen;
+        if (totalOpen > 0) itemEl.className = 'series-stat-value warn';
+        else               itemEl.className = 'series-stat-value good';
+      }
+      const topicEl = document.getElementById(`sc-topics-${seriesId}`);
+      if (topicEl) topicEl.textContent = minutesCache[seriesId].length;
+
+    } catch(e) {
+      minutesCache[seriesId] = [];
+      document.getElementById(`ml-${seriesId}`).innerHTML =
+        `<div class="minutes-loading" style="color:var(--overdue)">Could not load meetings: ${e.message}</div>`;
+    }
+  }
+
+  // Load all minutes counts eagerly after series load
+  async function loadAllMinutesCounts() {
+    for (const s of [...activeSeries, ...archivedSeries]) {
+      if (!minutesCache[s.id]) {
+        await loadMinutes(s.id);
+      }
+    }
+  }
+  // Kick off background load after a short delay
+  setTimeout(loadAllMinutesCounts, 500);
+
+  // ── Render minutes rows ────────────────────────────────────────
+  function renderMinutes(seriesId) {
+    const container = document.getElementById(`ml-${seriesId}`);
+    const minutes   = minutesCache[seriesId] || [];
+
+    if (minutes.length === 0) {
+      container.innerHTML = `<div class="minutes-loading">No meetings yet.</div>`;
+      return;
+    }
+
+    // Newest first
+    const sorted = [...minutes].reverse();
+    container.innerHTML = sorted.map(m => renderMinutesRow(m)).join('');
+  }
+
+  // ── Render a single minutes row ────────────────────────────────
+  function renderMinutesRow(m) {
+    const status   = m.status.toLowerCase();
+    const dotClass = status;
+    const dateStr  = formatDateShort(m.scheduledFor);
+    const relStr   = relativeDate(m.scheduledFor);
+
+    const isDraft     = status === 'draft';
+    const isAbandoned = status === 'abandoned';
+
+    let titleText, titleClass;
+    if (isDraft) {
+      titleText  = 'Draft — not yet finalized';
+      titleClass = 'draft-label';
+    } else if (isAbandoned) {
+      titleText  = 'Abandoned';
+      titleClass = '';
+    } else {
+      titleText  = `Meeting · ${dateStr}`;
+      titleClass = '';
+    }
+
+    const openCount  = m.openActionItemCount;
+    const topicCount = m.openTopicCount;
+
+    const itemChip = openCount > 0
+      ? `<span class="chip chip-items has-open">${openCount} open</span>`
+      : `<span class="chip chip-items">${openCount} open</span>`;
+
+    const topicChip = `<span class="chip chip-topics">${topicCount} topics</span>`;
+
+    const rowClass = isDraft ? 'is-draft' : isAbandoned ? 'is-abandoned' : '';
+
+    const actions = isDraft
+      ? `<button class="minutes-action-btn"
+                 onclick="openMinutes(event,'${m.id}')">open</button>
+         <button class="minutes-action-btn finalize"
+                 onclick="finalizeMinutes(event,'${m.id}')">finalize</button>`
+      : `<button class="minutes-action-btn"
+                 onclick="openMinutes(event,'${m.id}')">open</button>`;
+
+    return `
+      <div class="minutes-row ${rowClass}"
+           onclick="openMinutes(null,'${m.id}')"
+           oncontextmenu="showMinutesCtx(event,'${m.id}','${status}')">
+        <div class="timeline-col">
+          <span class="timeline-dot ${dotClass}"></span>
+        </div>
+        <div class="minutes-date">
+          <div>${dateStr}</div>
+          <div class="day-label">${relStr}</div>
+        </div>
+        <div class="minutes-summary">
+          <div class="minutes-title ${titleClass}">${titleText}</div>
+          <div class="minutes-chips">
+            ${topicChip}
+            ${itemChip}
+          </div>
+        </div>
+        <span class="minutes-status ${status}">${m.status}</span>
+        <div class="minutes-actions">${actions}</div>
+      </div>`;
+  }
+
+  // ── Tab switching ──────────────────────────────────────────────
+  function switchTab(tab) {
+    currentTab = tab;
+    document.getElementById('active-panel').style.display   = tab === 'active'   ? 'block' : 'none';
+    document.getElementById('archived-panel').style.display = tab === 'archived' ? 'block' : 'none';
+    document.getElementById('tab-active').classList.toggle('active',   tab === 'active');
+    document.getElementById('tab-archived').classList.toggle('active', tab === 'archived');
+  }
+
+  // ── Navigation ─────────────────────────────────────────────────
+  function openSeries(e, seriesId) {
+    if (e) { e.stopPropagation(); }
+    alert(`→ /app/minutes?series=${seriesId}\n(minutes detail page not yet wired)`);
+  }
+
+  function openMinutes(e, minutesId) {
+    if (e) { e.stopPropagation(); }
+    window.location.href = `/app/minutes?id=${minutesId}`;
+  }
+
+  function newSeries() {
+    alert('New series dialog — not yet built');
+  }
+
+  function newMeeting(e, seriesId) {
+    e.stopPropagation();
+    alert(`New meeting for series ${seriesId} — not yet built`);
+  }
+
+  async function finalizeMinutes(e, minutesId) {
+    e.stopPropagation();
+    if (!confirm('Finalize this meeting? The record will be immutable.')) return;
+    try {
+      const r = await fetch(`${API}/minutes/${minutesId}/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notifyResponsibles: false, notifyAll: false })
+      });
+      if (!r.ok) {
+        const err = await r.json();
+        if (r.status === 409 && err.blockingItemIds) {
+          alert(`Cannot finalize — ${err.blockingItemIds.length} unresolved item(s) must be resolved first.`);
+        } else {
+          alert(`Error: ${err.title || r.statusText}`);
+        }
+        return;
+      }
+      // Clear cache and reload
+      const seriesId = findSeriesForMinutes(minutesId);
+      if (seriesId) delete minutesCache[seriesId];
+      loadSeries();
+    } catch(err) {
+      alert('Could not finalize: ' + err.message);
+    }
+  }
+
+  function findSeriesForMinutes(minutesId) {
+    for (const [sid, mList] of Object.entries(minutesCache)) {
+      if (mList.some(m => m.id === minutesId)) return sid;
+    }
+    return null;
+  }
+
+  // ── Context menus ──────────────────────────────────────────────
+  const seriesCtx  = document.getElementById('series-ctx');
+  const minutesCtx = document.getElementById('minutes-ctx');
+
+  function hideMenus() {
+    seriesCtx.classList.remove('visible');
+    minutesCtx.classList.remove('visible');
+  }
+
+  function showSeriesCtx(e, seriesId, isArchived) {
+    e.preventDefault(); e.stopPropagation();
+    ctxSeriesId = seriesId;
+    hideMenus();
+    seriesCtx.style.left = Math.min(e.clientX, window.innerWidth  - 210) + 'px';
+    seriesCtx.style.top  = Math.min(e.clientY, window.innerHeight - 160) + 'px';
+    seriesCtx.classList.add('visible');
+  }
+
+  function showMinutesCtx(e, minutesId, status) {
+    e.preventDefault(); e.stopPropagation();
+    ctxMinutesId   = minutesId;
+    ctxMinutesStat = status;
+    hideMenus();
+    document.getElementById('ctx-finalize-btn').style.display =
+      status === 'draft' ? 'flex' : 'none';
+    minutesCtx.style.left = Math.min(e.clientX, window.innerWidth  - 210) + 'px';
+    minutesCtx.style.top  = Math.min(e.clientY, window.innerHeight - 180) + 'px';
+    minutesCtx.classList.add('visible');
+  }
+
+  function ctxSeries(action) {
+    hideMenus();
+    switch(action) {
+      case 'open':        openSeries(null, ctxSeriesId); break;
+      case 'new-meeting': newMeeting({ stopPropagation:()=>{} }, ctxSeriesId); break;
+      case 'archive':
+        if (confirm('Archive this series? All open items will be abandoned.'))
+          archiveSeries(ctxSeriesId);
+        break;
+    }
+  }
+
+  function ctxMinutes(action) {
+    hideMenus();
+    switch(action) {
+      case 'open':     openMinutes(null, ctxMinutesId); break;
+      case 'finalize': finalizeMinutes({ stopPropagation:()=>{} }, ctxMinutesId); break;
+      case 'abandon':
+        const note = prompt('Reason for abandoning (required):');
+        if (note && note.trim()) abandonMinutes(ctxMinutesId, note);
+        break;
+    }
+  }
+
+  async function archiveSeries(seriesId) {
+    try {
+      const r = await fetch(`${API}/series/${seriesId}/archive`, { method: 'POST' });
+      if (!r.ok) throw new Error(await r.text());
+      delete minutesCache[seriesId];
+      loadSeries();
+    } catch(err) {
+      alert('Could not archive: ' + err.message);
+    }
+  }
+
+  async function abandonMinutes(minutesId, note) {
+    try {
+      const r = await fetch(`${API}/minutes/${minutesId}/abandon`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note })
+      });
+      if (!r.ok) throw new Error(await r.text());
+      const seriesId = findSeriesForMinutes(minutesId);
+      if (seriesId) delete minutesCache[seriesId];
+      loadSeries();
+    } catch(err) {
+      alert('Could not abandon: ' + err.message);
+    }
+  }
+
+  document.addEventListener('click', hideMenus);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hideMenus(); });
+
+  // ── Date utilities (shared pattern from attention.html) ────────
+  function parseDate(str) {
+    // Handles both "2026-02-27" and full ISO strings
+    const d = new Date(str);
+    return d;
+  }
+
+  function formatDate(str) {
+    const d = parseDate(str);
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  }
+
+  function formatDateShort(str) {
+    const d = parseDate(str);
+    const days   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  }
+
+  function relativeDate(str) {
+    const d     = parseDate(str);
+    const today = new Date(); today.setHours(0,0,0,0);
+    d.setHours(0,0,0,0);
+    const diff  = Math.floor((d - today) / 86400000);
+    if (diff === 0)  return 'today';
+    if (diff === 1)  return 'tomorrow';
+    if (diff === -1) return 'yesterday';
+    if (diff > 0)   return `in ${diff} days`;
+    return `${Math.abs(diff)} days ago`;
+  }
+
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+</script>
+</body>
+</html>

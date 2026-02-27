@@ -101,6 +101,30 @@ public record ActionItemResponse(
         a.CreatedBy, a.CreatedAt, a.UpdatedAt);
 }
 
+public record ActionItemHistoryNodeResponse(
+Guid Id,
+Guid TopicId,
+string TopicTitle,
+Guid MinutesId,
+DateTimeOffset MinutesScheduledFor,
+string MinutesStatus,
+Guid SeriesId,
+string SeriesName,
+Guid? SourceActionItemId,
+string Title,
+Guid ResponsibleId,
+DateOnly? DueDate,
+int Priority,
+string Status,
+bool IsRecurring,
+bool AssignedInAbsentia,
+IEnumerable<LabelResponse> Labels,
+IEnumerable<ActionItemNoteResponse> Notes,
+Guid CreatedBy,
+DateTimeOffset CreatedAt,
+DateTimeOffset UpdatedAt);
+
+
 // ---------------------------------------------------------------------------
 // TOPICS
 // ---------------------------------------------------------------------------
@@ -508,7 +532,7 @@ public static class ActionItemEndpoints
         var minutes = await EndpointHelpers.LoadMinutesWithSeriesAsync(item.Topic!.MinutesId, db, ct);
         SeriesEndpoints.EnsureParticipant(minutes.Series!, currentUser.UserId);
 
-        // Traverse the sourceActionItemId chain backwards to find the root
+        // Traverse backwards to find root
         var chain = new List<ActionItem>();
         var current = item;
         while (current is not null)
@@ -518,13 +542,10 @@ public static class ActionItemEndpoints
                 ? await LoadActionItemAsync(current.SourceActionItemId.Value, db, ct)
                 : null;
         }
+        chain.Reverse();
 
-        chain.Reverse(); // oldest first
-
-        // Now traverse forward from root to find all descendants
-        // (the caller may have passed a non-tail item)
+        // Traverse forward from root to find all descendants
         var root = chain[0];
-        var fullChain = new List<ActionItem> { root };
         var visited = new HashSet<Guid> { root.Id };
 
         var allItems = await db.ActionItems
@@ -535,7 +556,6 @@ public static class ActionItemEndpoints
             .Include(a => a.Topic)
             .ToListAsync(ct);
 
-        // Build forward chain from root
         var bySource = allItems
             .Where(a => a.SourceActionItemId.HasValue)
             .GroupBy(a => a.SourceActionItemId!.Value)
@@ -561,9 +581,47 @@ public static class ActionItemEndpoints
             }
         }
 
-        return Results.Ok(orderedChain.Select(ActionItemResponse.From));
-    }
+        // Hydrate meeting context for each node — collect unique minutesIds
+        var minutesIds = orderedChain
+            .Select(a => a.Topic!.MinutesId)
+            .Distinct()
+            .ToList();
 
+        var minutesMap = await db.Minutes
+            .Include(m => m.Series)
+            .Where(m => minutesIds.Contains(m.Id))
+            .ToDictionaryAsync(m => m.Id, ct);
+
+        // Build enriched response
+        var result = orderedChain.Select(a =>
+        {
+            var m = minutesMap[a.Topic!.MinutesId];
+            return new ActionItemHistoryNodeResponse(
+                a.Id,
+                a.TopicId,
+                a.Topic.Title,
+                m.Id,
+                m.ScheduledFor,
+                m.Status.ToString(),
+                m.SeriesId,
+                m.Series!.Name,
+                a.SourceActionItemId,
+                a.Title,
+                a.ResponsibleId,
+                a.DueDate,
+                a.Priority,
+                a.Status.ToString(),
+                a.IsRecurring,
+                a.AssignedInAbsentia,
+                a.ActionItemLabels.Select(al => LabelResponse.From(al.Label!)),
+                a.Notes.OrderBy(n => n.CreatedAt).Select(ActionItemNoteResponse.From),
+                a.CreatedBy,
+                a.CreatedAt,
+                a.UpdatedAt);
+        });
+
+        return Results.Ok(result);
+    }
     private static async Task<IResult> AppendNote(
         Guid actionItemId,
         AppendNoteRequest request,

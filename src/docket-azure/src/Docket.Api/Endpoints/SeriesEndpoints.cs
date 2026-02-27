@@ -410,6 +410,8 @@ public static class SeriesEndpoints
         // Load the full chain for this series
         var allMinutes = await db.Minutes
             .Where(m => m.SeriesId == seriesId)
+            .Include(m => m.Topics)
+                .ThenInclude(t => t.ActionItems)
             .ToListAsync(ct);
 
         // Walk the linked list from tail back to head, then reverse
