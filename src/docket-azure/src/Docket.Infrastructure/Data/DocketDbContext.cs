@@ -19,6 +19,28 @@ public class DocketDbContext(DbContextOptions<DocketDbContext> options) : DbCont
     public DbSet<ActionItemLabel> ActionItemLabels => Set<ActionItemLabel>();
     public DbSet<TopicLabel> TopicLabels => Set<TopicLabel>();
 
+    public override Task<int> SaveChangesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        foreach (var entry in ChangeTracker.Entries<EntityBase>())
+        {
+            switch (entry.State)
+            {
+                case EntityState.Added:
+                    entry.Entity.CreatedAt = now;
+                    entry.Entity.UpdatedAt = now;
+                    break;
+                case EntityState.Modified:
+                    entry.Entity.UpdatedAt = now;
+                    break;
+            }
+        }
+
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -26,8 +48,6 @@ public class DocketDbContext(DbContextOptions<DocketDbContext> options) : DbCont
         SeedSystemLabels(modelBuilder);
     }
 
-    // Fixed epoch used for all seed data — must never change once the migration
-    // is committed. Changing this would make EF think the model has pending changes.
     private static readonly DateTimeOffset SeedEpoch =
         new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
