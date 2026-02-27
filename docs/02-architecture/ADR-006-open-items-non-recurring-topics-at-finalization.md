@@ -139,7 +139,9 @@ allowing the UI to make the experience smooth.
 
 ---
 
-## Current Behavior (as of this ADR)
+## Current Behavior (as of this ADR) -- UPDATED 2/26
+
+UPDATE: the code has been modified to block finalization when there are open items on non-recurring meetings. This commentary has been retained for posterity.
 
 Finalization succeeds regardless of open item status on non-recurring topics.
 Open items on non-recurring topics in finalized Minutes are left in `Open` status
@@ -158,7 +160,9 @@ that behavior is currently untested and undefined.
 
 ---
 
-## Work Required to Implement Recommendation
+## Work Required to Implement Recommendation -- UPDATED 2/26
+
+UPDATE - this has been implemented in the current code and test suites
 
 1. Add a finalization gate in `FinalizeMinutes` endpoint:
    - Query for open action items on non-recurring topics in the Minutes
