@@ -91,7 +91,7 @@ Claude and I have been building out test suites to validate and verify that Dock
 ### Why
 These test suites verify that the 38 endpoints do what we say they do, and they validate that what we said they do is the right thing to be doing. They also provide useful commentary about the design and provide examples.
 
-The contract tests found four missing validations found that were fixed, two authorization behaviors clarified (403 vs 404) and one history endpoint semantics pinned down (ActionItems history returns a list containing the item with an empty history, not an empty list).
+The contract tests found four missing validations that were fixed, two authorization behaviors clarified (403 vs 404) and the semantics of one history endpoint were pinned down (ActionItems history returns a list containing the item with an empty history, not an empty list).
 
 From Claude: "The contract tests caught real gaps — missing validation, wrong status codes, a carry-forward implementation that didn't match the intended design for human-deferred items. Those are exactly the kinds of bugs that would have been painful to diagnose from the Keeper side.
 Docket is solid. The API speaks the right language, the state machine is correct, the carry-forward audit trail works as designed, and the test suite gives anyone a clear green/red signal on the full surface."
