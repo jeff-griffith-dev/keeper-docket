@@ -1,0 +1,1226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keeper — Series</title>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    /* ── Design tokens (shared with attention.html) ─────────────── */
+    :root {
+      --bg:           #0e0f11;
+      --bg-surface:   #16181c;
+      --bg-raised:    #1e2127;
+      --bg-hover:     #252830;
+      --border:       #2a2d35;
+      --border-light: #343840;
+
+      --text-primary:   #e8eaed;
+      --text-secondary: #8b909a;
+      --text-muted:     #555a66;
+      --text-mono:      #a8b0bf;
+
+      --overdue:      #e05252;
+      --overdue-bg:   #1f1214;
+      --due-soon:     #e09052;
+      --due-soon-bg:  #1a1510;
+      --on-track:     #52a882;
+      --on-track-bg:  #0f1a15;
+
+      --accent:       #4a9eff;
+      --accent-dim:   #1a3a5c;
+
+      --status-draft:     #e09052;
+      --status-finalized: #52a882;
+      --status-abandoned: #555a66;
+      --status-archived:  #555a66;
+
+      --font-sans: 'IBM Plex Sans', sans-serif;
+      --font-mono: 'IBM Plex Mono', monospace;
+
+      --radius:    4px;
+      --radius-lg: 8px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    a { color: inherit; text-decoration: none; }
+    button { cursor: pointer; border: none; background: none; font: inherit; color: inherit; }
+
+    /* ── Shell ──────────────────────────────────────────────────── */
+    .shell {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      grid-template-rows: 48px 1fr;
+      min-height: 100vh;
+    }
+
+    /* ── Top bar ────────────────────────────────────────────────── */
+    .topbar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      gap: 16px;
+    }
+    .topbar-logo {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+    .topbar-logo span { color: var(--text-muted); font-weight: 400; }
+    .topbar-sep { width: 1px; height: 20px; background: var(--border); }
+    .topbar-context {
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+    }
+    .topbar-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .topbar-user { font-size: 12px; color: var(--text-secondary); }
+    .topbar-avatar {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 11px; color: var(--accent); font-weight: 500;
+    }
+
+    /* ── Sidebar ────────────────────────────────────────────────── */
+    .sidebar {
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border);
+      padding: 16px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .nav-section {
+      padding: 8px 16px 4px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 16px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: background 0.1s, color 0.1s;
+      border-left: 2px solid transparent;
+    }
+    .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .nav-item.active {
+      color: var(--text-primary);
+      border-left-color: var(--accent);
+      background: var(--bg-hover);
+    }
+    .nav-icon { font-size: 14px; width: 16px; text-align: center; flex-shrink: 0; }
+    .nav-badge {
+      margin-left: auto;
+      font-family: var(--font-mono); font-size: 10px;
+      padding: 1px 6px; border-radius: 10px;
+      background: var(--overdue); color: white; font-weight: 500;
+    }
+    .nav-badge.warn { background: var(--due-soon); }
+    .nav-badge.neutral {
+      background: var(--bg-raised); color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+    }
+    .sidebar-footer-text {
+      font-family: var(--font-mono); font-size: 10px;
+      color: var(--text-muted); line-height: 1.6;
+    }
+
+    /* ── Main ───────────────────────────────────────────────────── */
+    .main {
+      overflow-y: auto;
+      padding: 24px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* ── Page header ────────────────────────────────────────────── */
+    .page-header {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+    }
+    .page-title { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+    .page-subtitle {
+      font-size: 12px; color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+    .page-actions { margin-left: auto; display: flex; gap: 8px; }
+    .btn {
+      padding: 6px 14px; border-radius: var(--radius);
+      font-size: 12px; font-weight: 500; transition: background 0.1s;
+    }
+    .btn-ghost {
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover {
+      background: var(--bg-hover); color: var(--text-primary);
+      border-color: var(--border-light);
+    }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: #3a8eef; }
+
+    /* ── Tabs ───────────────────────────────────────────────────── */
+    .tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .tab {
+      padding: 8px 20px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.1s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tab:hover { color: var(--text-primary); }
+    .tab.active {
+      color: var(--text-primary);
+      border-bottom-color: var(--accent);
+    }
+    .tab-count {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      background: var(--bg-raised);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .tab.active .tab-count {
+      background: var(--accent-dim);
+      color: var(--accent);
+      border-color: var(--accent-dim);
+    }
+
+    /* ── Series list ────────────────────────────────────────────── */
+    .series-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    /* ── Series card ────────────────────────────────────────────── */
+    .series-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      transition: border-color 0.15s;
+    }
+    .series-card:hover { border-color: var(--border-light); }
+    .series-card.has-draft { border-color: #2a2210; }
+    .series-card.has-draft:hover { border-color: #3a3010; }
+
+    /* Series header row */
+    .series-header {
+      display: grid;
+      grid-template-columns: 28px 1fr auto auto auto auto;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .series-header:hover { background: var(--bg-hover); }
+
+    .expand-btn {
+      width: 20px; height: 20px;
+      border-radius: var(--radius);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-muted);
+      font-size: 11px;
+      transition: transform 0.2s, color 0.1s;
+      flex-shrink: 0;
+    }
+    .series-card.expanded .expand-btn {
+      transform: rotate(90deg);
+      color: var(--accent);
+    }
+
+    .series-info { min-width: 0; }
+    .series-name {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .series-project {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .series-stat {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+      white-space: nowrap;
+    }
+    .series-stat-value {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+    .series-stat-value.alert { color: var(--overdue); }
+    .series-stat-value.warn  { color: var(--due-soon); }
+    .series-stat-value.good  { color: var(--on-track); }
+    .series-stat-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .series-status-badge {
+      padding: 3px 10px;
+      border-radius: 2px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+    .badge-draft {
+      background: #1f1810;
+      color: var(--status-draft);
+      border: 1px solid #2e2210;
+    }
+    .badge-active {
+      background: var(--bg-raised);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .badge-archived {
+      background: var(--bg-raised);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      opacity: 0.6;
+    }
+
+    .series-actions {
+      display: flex; gap: 4px;
+      opacity: 0;
+      transition: opacity 0.1s;
+    }
+    .series-header:hover .series-actions { opacity: 1; }
+    .series-action-btn {
+      padding: 3px 10px;
+      border-radius: var(--radius);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      background: var(--bg-raised);
+      transition: all 0.1s;
+      white-space: nowrap;
+    }
+    .series-action-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+    .series-action-btn.new-meeting:hover {
+      border-color: var(--on-track);
+      color: var(--on-track);
+      background: var(--on-track-bg);
+    }
+
+    /* ── Accordion / Minutes list ───────────────────────────────── */
+    .minutes-list {
+      display: none;
+      border-top: 1px solid var(--border);
+    }
+    .series-card.expanded .minutes-list { display: block; }
+
+    /* Minutes row */
+    .minutes-row {
+      display: grid;
+      grid-template-columns: 28px 160px 1fr auto auto auto;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px 10px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.1s;
+      position: relative;
+    }
+    .minutes-row:last-child { border-bottom: none; }
+    .minutes-row:hover { background: var(--bg-hover); }
+    .minutes-row.is-draft { background: #16140e; }
+    .minutes-row.is-draft:hover { background: #1e1c10; }
+    .minutes-row.is-abandoned { opacity: 0.5; }
+
+    /* Timeline connector */
+    .timeline-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      position: relative;
+    }
+    .timeline-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      z-index: 1;
+    }
+    .timeline-dot.draft     { background: var(--status-draft); box-shadow: 0 0 6px var(--status-draft); }
+    .timeline-dot.finalized { background: var(--status-finalized); }
+    .timeline-dot.abandoned { background: var(--status-abandoned); }
+
+    .minutes-date {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+    .minutes-date .day-label {
+      color: var(--text-muted);
+      font-size: 10px;
+    }
+
+    .minutes-summary { min-width: 0; }
+    .minutes-title {
+      font-size: 13px;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .minutes-title.draft-label { color: var(--status-draft); }
+    .minutes-chips {
+      display: flex; align-items: center; gap: 6px;
+      margin-top: 3px;
+    }
+    .chip {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 1px 7px;
+      border-radius: 2px;
+      white-space: nowrap;
+    }
+    .chip-topics {
+      background: var(--bg-raised);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .chip-items {
+      background: var(--bg-raised);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .chip-items.has-open {
+      background: var(--overdue-bg);
+      color: var(--overdue);
+      border-color: #3a1515;
+    }
+    .chip-carry {
+      background: #1a1530;
+      color: var(--status-draft);
+      border: 1px solid #2a2040;
+      color: #a67cff;
+    }
+    .chip-attendees {
+      background: var(--bg-raised);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .minutes-status {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+    .minutes-status.draft     { color: var(--status-draft); }
+    .minutes-status.finalized { color: var(--status-finalized); }
+    .minutes-status.abandoned { color: var(--status-abandoned); }
+
+    .minutes-actions {
+      display: flex; gap: 4px;
+      opacity: 0;
+      transition: opacity 0.1s;
+    }
+    .minutes-row:hover .minutes-actions { opacity: 1; }
+    .minutes-action-btn {
+      padding: 2px 8px;
+      border-radius: var(--radius);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      background: var(--bg-raised);
+      transition: all 0.1s;
+      white-space: nowrap;
+    }
+    .minutes-action-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+    .minutes-action-btn.finalize:hover {
+      border-color: var(--on-track);
+      color: var(--on-track);
+      background: var(--on-track-bg);
+    }
+
+    /* ── Archived tab dimming ───────────────────────────────────── */
+    #archived-panel .series-name { color: var(--text-secondary); }
+    #archived-panel .series-card { opacity: 0.75; }
+    #archived-panel .series-card:hover { opacity: 1; }
+
+    /* ── Context menu ───────────────────────────────────────────── */
+    .context-menu {
+      position: fixed;
+      background: var(--bg-raised);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-lg);
+      padding: 4px;
+      min-width: 190px;
+      z-index: 1000;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      display: none;
+    }
+    .context-menu.visible { display: block; }
+    .ctx-section {
+      padding: 4px 8px 2px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+    .ctx-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 10px;
+      border-radius: var(--radius);
+      font-size: 12px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: background 0.1s, color 0.1s;
+    }
+    .ctx-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .ctx-item.destructive { color: var(--overdue); }
+    .ctx-item.destructive:hover { background: var(--overdue-bg); }
+    .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
+    .ctx-icon { font-size: 13px; width: 16px; text-align: center; }
+
+    /* ── Scrollbar ──────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+
+    /* ── Animations ─────────────────────────────────────────────── */
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .minutes-list { animation: slideDown 0.15s ease both; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .series-card {
+      animation: fadeIn 0.2s ease both;
+    }
+    .series-card:nth-child(1) { animation-delay: 0.02s; }
+    .series-card:nth-child(2) { animation-delay: 0.06s; }
+    .series-card:nth-child(3) { animation-delay: 0.10s; }
+    .series-card:nth-child(4) { animation-delay: 0.14s; }
+  </style>
+</head>
+
+<body>
+<div class="shell">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="topbar-logo">KEEPER <span>/ docket</span></div>
+    <div class="topbar-sep"></div>
+    <div class="topbar-context">series</div>
+    <div class="topbar-right">
+      <span class="topbar-user">Dev User (Stub)</span>
+      <div class="topbar-avatar">DU</div>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="nav-section">Workspace</div>
+    <div class="nav-item" onclick="alert('→ attention.html')">
+      <span class="nav-icon">⊙</span>
+      My Attention
+      <span class="nav-badge">3</span>
+    </div>
+    <div class="nav-item active">
+      <span class="nav-icon">◫</span>
+      Series
+      <span class="nav-badge neutral">4</span>
+    </div>
+    <div class="nav-section">Quick Access</div>
+    <div class="nav-item">
+      <span class="nav-icon">◷</span>
+      Recent Meetings
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">◈</span>
+      All My Items
+      <span class="nav-badge warn">7</span>
+    </div>
+    <div class="nav-section">Actions</div>
+    <div class="nav-item" onclick="newSeries()">
+      <span class="nav-icon">+</span>
+      New Series
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">↑</span>
+      Submit Transcript
+    </div>
+    <div class="sidebar-footer">
+      <div class="sidebar-footer-text">
+        keeper v0.1.0<br>
+        docket api · connected
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main class="main">
+
+    <div class="page-header">
+      <h1 class="page-title">Series</h1>
+      <span class="page-subtitle">4 active · 2 archived</span>
+      <div class="page-actions">
+        <button class="btn btn-primary" onclick="newSeries()">+ New Series</button>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active" id="tab-active" onclick="switchTab('active')">
+        Active
+        <span class="tab-count">4</span>
+      </div>
+      <div class="tab" id="tab-archived" onclick="switchTab('archived')">
+        Archived
+        <span class="tab-count">2</span>
+      </div>
+    </div>
+
+    <!-- Active panel -->
+    <div id="active-panel">
+      <div class="series-list">
+
+        <!-- Series 1: has draft minutes -->
+        <div class="series-card has-draft" id="series-1">
+          <div class="series-header"
+               onclick="toggleSeries('series-1')"
+               oncontextmenu="showSeriesContext(event,'series-1')">
+            <span class="expand-btn">▶</span>
+            <div class="series-info">
+              <div class="series-name">Bridge Project Kickoff</div>
+              <div class="series-project">Acme Infrastructure · Structural Division</div>
+            </div>
+            <div class="series-stat">
+              <span class="series-stat-value alert">5</span>
+              <span class="series-stat-label">open items</span>
+            </div>
+            <div class="series-stat">
+              <span class="series-stat-value">3</span>
+              <span class="series-stat-label">meetings</span>
+            </div>
+            <span class="series-status-badge badge-draft">Draft in progress</span>
+            <div class="series-actions">
+              <button class="series-action-btn"
+                      onclick="openSeries(event,'series-1')">open</button>
+              <button class="series-action-btn new-meeting"
+                      onclick="newMeeting(event,'series-1')">+ meeting</button>
+            </div>
+          </div>
+
+          <div class="minutes-list" id="minutes-series-1">
+
+            <!-- Draft meeting — shallowest expansion -->
+            <div class="minutes-row is-draft"
+                 onclick="openMinutes('m-draft-1')"
+                 oncontextmenu="showMinutesContext(event,'m-draft-1','draft')">
+              <div class="timeline-col">
+                <span class="timeline-dot draft"></span>
+              </div>
+              <div class="minutes-date">
+                <div>Wed 26 Feb 2026</div>
+                <div class="day-label">today · draft</div>
+              </div>
+              <div class="minutes-summary">
+                <div class="minutes-title draft-label">In progress — not yet finalized</div>
+                <div class="minutes-chips">
+                  <span class="chip chip-topics">4 topics</span>
+                  <span class="chip chip-carry">↩ 2 carried in</span>
+                  <span class="chip chip-attendees">3 confirmed</span>
+                </div>
+              </div>
+              <span class="minutes-status draft">draft</span>
+              <div class="minutes-actions">
+                <button class="minutes-action-btn"
+                        onclick="openMinutes('m-draft-1');event.stopPropagation()">open</button>
+                <button class="minutes-action-btn finalize"
+                        onclick="finalizeMinutes(event,'m-draft-1')">finalize</button>
+              </div>
+            </div>
+
+            <!-- Finalized meeting 2 -->
+            <div class="minutes-row"
+                 onclick="openMinutes('m-2')"
+                 oncontextmenu="showMinutesContext(event,'m-2','finalized')">
+              <div class="timeline-col">
+                <span class="timeline-dot finalized"></span>
+              </div>
+              <div class="minutes-date">
+                <div>Wed 19 Feb 2026</div>
+                <div class="day-label">7 days ago</div>
+              </div>
+              <div class="minutes-summary">
+                <div class="minutes-title">Weekly sync — structural assessment review</div>
+                <div class="minutes-chips">
+                  <span class="chip chip-topics">5 topics</span>
+                  <span class="chip chip-items has-open">3 open items</span>
+                  <span class="chip chip-attendees">5 attended</span>
+                </div>
+              </div>
+              <span class="minutes-status finalized">finalized</span>
+              <div class="minutes-actions">
+                <button class="minutes-action-btn"
+                        onclick="openMinutes('m-2');event.stopPropagation()">open</button>
+              </div>
+            </div>
+
+            <!-- Finalized meeting 1 -->
+            <div class="minutes-row"
+                 onclick="openMinutes('m-1')"
+                 oncontextmenu="showMinutesContext(event,'m-1','finalized')">
+              <div class="timeline-col">
+                <span class="timeline-dot finalized"></span>
+              </div>
+              <div class="minutes-date">
+                <div>Wed 12 Feb 2026</div>
+                <div class="day-label">14 days ago</div>
+              </div>
+              <div class="minutes-summary">
+                <div class="minutes-title">Kickoff — scope, team, initial commitments</div>
+                <div class="minutes-chips">
+                  <span class="chip chip-topics">3 topics</span>
+                  <span class="chip chip-items">6 items · all resolved</span>
+                  <span class="chip chip-attendees">7 attended</span>
+                </div>
+              </div>
+              <span class="minutes-status finalized">finalized</span>
+              <div class="minutes-actions">
+                <button class="minutes-action-btn"
+                        onclick="openMinutes('m-1');event.stopPropagation()">open</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Series 2: active, no draft -->
+        <div class="series-card" id="series-2">
+          <div class="series-header"
+               onclick="toggleSeries('series-2')"
+               oncontextmenu="showSeriesContext(event,'series-2')">
+            <span class="expand-btn">▶</span>
+            <div class="series-info">
+              <div class="series-name">Quarterly Review — Acme Corp</div>
+              <div class="series-project">Acme Corp · Executive Engagement</div>
+            </div>
+            <div class="series-stat">
+              <span class="series-stat-value warn">2</span>
+              <span class="series-stat-label">open items</span>
+            </div>
+            <div class="series-stat">
+              <span class="series-stat-value">6</span>
+              <span class="series-stat-label">meetings</span>
+            </div>
+            <span class="series-status-badge badge-active">Active</span>
+            <div class="series-actions">
+              <button class="series-action-btn"
+                      onclick="openSeries(event,'series-2')">open</button>
+              <button class="series-action-btn new-meeting"
+                      onclick="newMeeting(event,'series-2')">+ meeting</button>
+            </div>
+          </div>
+
+          <div class="minutes-list" id="minutes-series-2">
+
+            <div class="minutes-row"
+                 onclick="openMinutes('m-q2')"
+                 oncontextmenu="showMinutesContext(event,'m-q2','finalized')">
+              <div class="timeline-col">
+                <span class="timeline-dot finalized"></span>
+              </div>
+              <div class="minutes-date">
+                <div>Thu 20 Feb 2026</div>
+                <div class="day-label">6 days ago</div>
+              </div>
+              <div class="minutes-summary">
+                <div class="minutes-title">Q4 close — vendor review and budget sign-off</div>
+                <div class="minutes-chips">
+                  <span class="chip chip-topics">4 topics</span>
+                  <span class="chip chip-items has-open">2 open items</span>
+                  <span class="chip chip-attendees">4 attended</span>
+                </div>
+              </div>
+              <span class="minutes-status finalized">finalized</span>
+              <div class="minutes-actions">
+                <button class="minutes-action-btn"
+                        onclick="openMinutes('m-q2');event.stopPropagation()">open</button>
+              </div>
+            </div>
+
+            <div class="minutes-row"
+                 onclick="openMinutes('m-q1')"
+                 oncontextmenu="showMinutesContext(event,'m-q1','finalized')">
+              <div class="timeline-col">
+                <span class="timeline-dot finalized"></span>
+              </div>
+              <div class="minutes-date">
+                <div>Thu 22 Jan 2026</div>
+                <div class="day-label">5 weeks ago</div>
+              </div>
+              <div class="minutes-summary">
+                <div class="minutes-title">Q3 review — performance and planning</div>
+                <div class="minutes-chips">
+                  <span class="chip chip-topics">6 topics</span>
+                  <span class="chip chip-items">8 items · all resolved</span>
+                  <span class="chip chip-attendees">5 attended</span>
+                </div>
+              </div>
+              <span class="minutes-status finalized">finalized</span>
+              <div class="minutes-actions">
+                <button class="minutes-action-btn"
+                        onclick="openMinutes('m-q1');event.stopPropagation()">open</button>
+              </div>
+            </div>
+
+            <!-- Abandoned meeting — dimmed -->
+            <div class="minutes-row is-abandoned"
+                 onclick="openMinutes('m-q0')"
+                 oncontextmenu="showMinutesContext(event,'m-q0','abandoned')">
+              <div class="timeline-col">
+                <span class="timeline-dot abandoned"></span>
+              </div>
+              <div class="minutes-date">
+                <div>Thu 18 Dec 2025</div>
+                <div class="day-label">10 weeks ago</div>
+              </div>
+              <div class="minutes-summary">
+                <div class="minutes-title">Q3 mid-point check — cancelled</div>
+                <div class="minutes-chips">
+                  <span class="chip chip-topics">0 topics</span>
+                </div>
+              </div>
+              <span class="minutes-status abandoned">abandoned</span>
+              <div class="minutes-actions">
+                <button class="minutes-action-btn"
+                        onclick="openMinutes('m-q0');event.stopPropagation()">view</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Series 3: active, no open items -->
+        <div class="series-card" id="series-3">
+          <div class="series-header"
+               onclick="toggleSeries('series-3')"
+               oncontextmenu="showSeriesContext(event,'series-3')">
+            <span class="expand-btn">▶</span>
+            <div class="series-info">
+              <div class="series-name">Weekly Team Standup</div>
+              <div class="series-project">Internal · Engineering</div>
+            </div>
+            <div class="series-stat">
+              <span class="series-stat-value good">0</span>
+              <span class="series-stat-label">open items</span>
+            </div>
+            <div class="series-stat">
+              <span class="series-stat-value">12</span>
+              <span class="series-stat-label">meetings</span>
+            </div>
+            <span class="series-status-badge badge-active">Active</span>
+            <div class="series-actions">
+              <button class="series-action-btn"
+                      onclick="openSeries(event,'series-3')">open</button>
+              <button class="series-action-btn new-meeting"
+                      onclick="newMeeting(event,'series-3')">+ meeting</button>
+            </div>
+          </div>
+          <div class="minutes-list" id="minutes-series-3">
+            <div class="minutes-row"
+                 onclick="openMinutes('m-s1')"
+                 oncontextmenu="showMinutesContext(event,'m-s1','finalized')">
+              <div class="timeline-col">
+                <span class="timeline-dot finalized"></span>
+              </div>
+              <div class="minutes-date">
+                <div>Mon 24 Feb 2026</div>
+                <div class="day-label">2 days ago</div>
+              </div>
+              <div class="minutes-summary">
+                <div class="minutes-title">Sprint 14 standup — velocity and blockers</div>
+                <div class="minutes-chips">
+                  <span class="chip chip-topics">3 topics</span>
+                  <span class="chip chip-items">4 items · all resolved</span>
+                  <span class="chip chip-attendees">6 attended</span>
+                </div>
+              </div>
+              <span class="minutes-status finalized">finalized</span>
+              <div class="minutes-actions">
+                <button class="minutes-action-btn"
+                        onclick="openMinutes('m-s1');event.stopPropagation()">open</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Series 4: active, single meeting, new -->
+        <div class="series-card" id="series-4">
+          <div class="series-header"
+               onclick="toggleSeries('series-4')"
+               oncontextmenu="showSeriesContext(event,'series-4')">
+            <span class="expand-btn">▶</span>
+            <div class="series-info">
+              <div class="series-name">Bridge Project Kickoff</div>
+              <div class="series-project">Keeper Demo · Created via transcript</div>
+            </div>
+            <div class="series-stat">
+              <span class="series-stat-value warn">4</span>
+              <span class="series-stat-label">open items</span>
+            </div>
+            <div class="series-stat">
+              <span class="series-stat-value">1</span>
+              <span class="series-stat-label">meetings</span>
+            </div>
+            <span class="series-status-badge badge-active">Active</span>
+            <div class="series-actions">
+              <button class="series-action-btn"
+                      onclick="openSeries(event,'series-4')">open</button>
+              <button class="series-action-btn new-meeting"
+                      onclick="newMeeting(event,'series-4')">+ meeting</button>
+            </div>
+          </div>
+          <div class="minutes-list" id="minutes-series-4">
+            <div class="minutes-row is-draft"
+                 onclick="openMinutes('m-keeper-1')"
+                 oncontextmenu="showMinutesContext(event,'m-keeper-1','draft')">
+              <div class="timeline-col">
+                <span class="timeline-dot draft"></span>
+              </div>
+              <div class="minutes-date">
+                <div>Wed 26 Feb 2026</div>
+                <div class="day-label">today · from Keeper</div>
+              </div>
+              <div class="minutes-summary">
+                <div class="minutes-title draft-label">Bridge Project Kickoff — captured via Slack</div>
+                <div class="minutes-chips">
+                  <span class="chip chip-topics">3 topics</span>
+                  <span class="chip chip-items has-open">4 open items</span>
+                </div>
+              </div>
+              <span class="minutes-status draft">draft</span>
+              <div class="minutes-actions">
+                <button class="minutes-action-btn"
+                        onclick="openMinutes('m-keeper-1');event.stopPropagation()">open</button>
+                <button class="minutes-action-btn finalize"
+                        onclick="finalizeMinutes(event,'m-keeper-1')">finalize</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Archived panel (hidden by default) -->
+    <div id="archived-panel" style="display:none">
+      <div class="series-list">
+
+        <div class="series-card" id="series-arch-1">
+          <div class="series-header"
+               onclick="toggleSeries('series-arch-1')"
+               oncontextmenu="showSeriesContext(event,'series-arch-1')">
+            <span class="expand-btn">▶</span>
+            <div class="series-info">
+              <div class="series-name">2024 Annual Planning — Acme Corp</div>
+              <div class="series-project">Acme Corp · Strategic Planning</div>
+            </div>
+            <div class="series-stat">
+              <span class="series-stat-value" style="color:var(--text-muted)">0</span>
+              <span class="series-stat-label">open items</span>
+            </div>
+            <div class="series-stat">
+              <span class="series-stat-value">8</span>
+              <span class="series-stat-label">meetings</span>
+            </div>
+            <span class="series-status-badge badge-archived">Archived</span>
+            <div class="series-actions">
+              <button class="series-action-btn"
+                      onclick="openSeries(event,'series-arch-1')">open</button>
+            </div>
+          </div>
+          <div class="minutes-list" id="minutes-series-arch-1">
+            <div class="minutes-row"
+                 onclick="openMinutes('m-arch-1')"
+                 oncontextmenu="showMinutesContext(event,'m-arch-1','finalized')">
+              <div class="timeline-col">
+                <span class="timeline-dot finalized"></span>
+              </div>
+              <div class="minutes-date">
+                <div>Fri 20 Dec 2024</div>
+                <div class="day-label">14 months ago</div>
+              </div>
+              <div class="minutes-summary">
+                <div class="minutes-title">Final planning session — 2025 commitments locked</div>
+                <div class="minutes-chips">
+                  <span class="chip chip-topics">7 topics</span>
+                  <span class="chip chip-items">12 items · all resolved</span>
+                  <span class="chip chip-attendees">9 attended</span>
+                </div>
+              </div>
+              <span class="minutes-status finalized">finalized</span>
+              <div class="minutes-actions">
+                <button class="minutes-action-btn"
+                        onclick="openMinutes('m-arch-1');event.stopPropagation()">open</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="series-card" id="series-arch-2">
+          <div class="series-header"
+               onclick="toggleSeries('series-arch-2')"
+               oncontextmenu="showSeriesContext(event,'series-arch-2')">
+            <span class="expand-btn">▶</span>
+            <div class="series-info">
+              <div class="series-name">Infrastructure Assessment — Phase 1</div>
+              <div class="series-project">Acme Infrastructure · Completed engagement</div>
+            </div>
+            <div class="series-stat">
+              <span class="series-stat-value" style="color:var(--text-muted)">0</span>
+              <span class="series-stat-label">open items</span>
+            </div>
+            <div class="series-stat">
+              <span class="series-stat-value">4</span>
+              <span class="series-stat-label">meetings</span>
+            </div>
+            <span class="series-status-badge badge-archived">Archived</span>
+            <div class="series-actions">
+              <button class="series-action-btn"
+                      onclick="openSeries(event,'series-arch-2')">open</button>
+            </div>
+          </div>
+          <div class="minutes-list" id="minutes-series-arch-2"></div>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Context menus -->
+<div class="context-menu" id="series-context-menu">
+  <div class="ctx-section">Series</div>
+  <div class="ctx-item" onclick="ctxSeriesAction('open')">
+    <span class="ctx-icon">⊞</span> Open series
+  </div>
+  <div class="ctx-item" onclick="ctxSeriesAction('new-meeting')">
+    <span class="ctx-icon">+</span> New meeting
+  </div>
+  <div class="ctx-item" onclick="ctxSeriesAction('participants')">
+    <span class="ctx-icon">◎</span> Participants
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item destructive" onclick="ctxSeriesAction('archive')">
+    <span class="ctx-icon">▣</span> Archive series
+  </div>
+</div>
+
+<div class="context-menu" id="minutes-context-menu">
+  <div class="ctx-section">Meeting</div>
+  <div class="ctx-item" onclick="ctxMinutesAction('open')">
+    <span class="ctx-icon">⊞</span> Open meeting
+  </div>
+  <div class="ctx-item" id="ctx-finalize-item"
+       onclick="ctxMinutesAction('finalize')">
+    <span class="ctx-icon">✓</span> Finalize
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item destructive" onclick="ctxMinutesAction('abandon')">
+    <span class="ctx-icon">✕</span> Abandon meeting
+  </div>
+</div>
+
+<script>
+  // ── Tab switching ──────────────────────────────────────────────
+  function switchTab(tab) {
+    document.getElementById('active-panel').style.display =
+      tab === 'active' ? 'block' : 'none';
+    document.getElementById('archived-panel').style.display =
+      tab === 'archived' ? 'block' : 'none';
+    document.getElementById('tab-active').classList.toggle('active', tab === 'active');
+    document.getElementById('tab-archived').classList.toggle('active', tab === 'archived');
+  }
+
+  // ── Accordion ──────────────────────────────────────────────────
+  function toggleSeries(seriesId) {
+    const card = document.getElementById(seriesId);
+    card.classList.toggle('expanded');
+  }
+
+  // ── Navigation ─────────────────────────────────────────────────
+  function openSeries(e, seriesId) {
+    e.stopPropagation();
+    alert('→ /series/' + seriesId + ' (not yet built)');
+  }
+  function openMinutes(minutesId) {
+    alert('→ /minutes/' + minutesId + ' (not yet built)');
+  }
+  function newSeries() {
+    alert('New series dialog (not yet built)');
+  }
+  function newMeeting(e, seriesId) {
+    e.stopPropagation();
+    alert('New meeting for ' + seriesId + ' (not yet built)');
+  }
+  function finalizeMinutes(e, minutesId) {
+    e.stopPropagation();
+    if (confirm('Finalize this meeting? This cannot be undone.')) {
+      alert('PATCH /minutes/' + minutesId + '/finalize (not yet wired)');
+    }
+  }
+
+  // ── Series context menu ────────────────────────────────────────
+  let activeSeriesId = null;
+  let activeMinutesId = null;
+  let activeMinutesStatus = null;
+  const seriesMenu  = document.getElementById('series-context-menu');
+  const minutesMenu = document.getElementById('minutes-context-menu');
+
+  function showSeriesContext(e, seriesId) {
+    e.preventDefault(); e.stopPropagation();
+    activeSeriesId = seriesId;
+    hideAllMenus();
+    seriesMenu.style.left = Math.min(e.clientX, window.innerWidth - 210) + 'px';
+    seriesMenu.style.top  = Math.min(e.clientY, window.innerHeight - 200) + 'px';
+    seriesMenu.classList.add('visible');
+  }
+
+  function showMinutesContext(e, minutesId, status) {
+    e.preventDefault(); e.stopPropagation();
+    activeMinutesId = minutesId;
+    activeMinutesStatus = status;
+    hideAllMenus();
+    // Show/hide finalize option based on status
+    document.getElementById('ctx-finalize-item').style.display =
+      status === 'draft' ? 'flex' : 'none';
+    minutesMenu.style.left = Math.min(e.clientX, window.innerWidth - 210) + 'px';
+    minutesMenu.style.top  = Math.min(e.clientY, window.innerHeight - 180) + 'px';
+    minutesMenu.classList.add('visible');
+  }
+
+  function hideAllMenus() {
+    seriesMenu.classList.remove('visible');
+    minutesMenu.classList.remove('visible');
+  }
+
+  function ctxSeriesAction(action) {
+    hideAllMenus();
+    switch(action) {
+      case 'open':         openSeries({stopPropagation:()=>{}}, activeSeriesId); break;
+      case 'new-meeting':  newMeeting({stopPropagation:()=>{}}, activeSeriesId); break;
+      case 'participants': alert('Participants for ' + activeSeriesId); break;
+      case 'archive':
+        if (confirm('Archive this series? It will be read-only.'))
+          alert('POST /series/' + activeSeriesId + '/archive');
+        break;
+    }
+  }
+
+  function ctxMinutesAction(action) {
+    hideAllMenus();
+    switch(action) {
+      case 'open':     openMinutes(activeMinutesId); break;
+      case 'finalize': finalizeMinutes({stopPropagation:()=>{}}, activeMinutesId); break;
+      case 'abandon':
+        const note = prompt('Reason for abandoning this meeting (required):');
+        if (note && note.trim())
+          alert('POST /minutes/' + activeMinutesId + '/abandon');
+        break;
+    }
+  }
+
+  document.addEventListener('click', hideAllMenus);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') hideAllMenus();
+  });
+</script>
+
+</body>
+</html>
