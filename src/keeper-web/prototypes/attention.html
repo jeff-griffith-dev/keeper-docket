@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keeper — My Attention</title>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    /* ── Design tokens ─────────────────────────────────────────── */
+    :root {
+      --bg:           #0e0f11;
+      --bg-surface:   #16181c;
+      --bg-raised:    #1e2127;
+      --bg-hover:     #252830;
+      --border:       #2a2d35;
+      --border-light: #343840;
+
+      --text-primary:   #e8eaed;
+      --text-secondary: #8b909a;
+      --text-muted:     #555a66;
+      --text-mono:      #a8b0bf;
+
+      --overdue:      #e05252;
+      --overdue-bg:   #1f1214;
+      --due-soon:     #e09052;
+      --due-soon-bg:  #1a1510;
+      --on-track:     #52a882;
+      --on-track-bg:  #0f1a15;
+      --no-date:      #6b7280;
+
+      --accent:       #4a9eff;
+      --accent-dim:   #1a3a5c;
+
+      --status-open:      #4a9eff;
+      --status-deferred:  #a67cff;
+      --status-done:      #52a882;
+      --status-abandoned: #555a66;
+
+      --font-sans: 'IBM Plex Sans', sans-serif;
+      --font-mono: 'IBM Plex Mono', monospace;
+
+      --radius: 4px;
+      --radius-lg: 8px;
+    }
+
+    /* ── Reset ─────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    a { color: inherit; text-decoration: none; }
+    button { cursor: pointer; border: none; background: none; font: inherit; color: inherit; }
+
+    /* ── Layout ────────────────────────────────────────────────── */
+    .shell {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      grid-template-rows: 48px 1fr;
+      min-height: 100vh;
+    }
+
+    /* ── Top bar ───────────────────────────────────────────────── */
+    .topbar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      gap: 16px;
+    }
+    .topbar-logo {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+    .topbar-logo span {
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+    .topbar-sep {
+      width: 1px;
+      height: 20px;
+      background: var(--border);
+    }
+    .topbar-context {
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+    }
+    .topbar-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .topbar-user {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .topbar-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    /* ── Sidebar ───────────────────────────────────────────────── */
+    .sidebar {
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border);
+      padding: 16px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .nav-section {
+      padding: 8px 16px 4px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 16px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: background 0.1s, color 0.1s;
+      border-left: 2px solid transparent;
+      position: relative;
+    }
+    .nav-item:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+    .nav-item.active {
+      color: var(--text-primary);
+      border-left-color: var(--accent);
+      background: var(--bg-hover);
+    }
+    .nav-item .nav-icon {
+      font-size: 14px;
+      width: 16px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .nav-badge {
+      margin-left: auto;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      background: var(--overdue);
+      color: white;
+      font-weight: 500;
+    }
+    .nav-badge.warn {
+      background: var(--due-soon);
+    }
+    .nav-badge.neutral {
+      background: var(--bg-raised);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+    }
+    .sidebar-footer-text {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* ── Main content ──────────────────────────────────────────── */
+    .main {
+      overflow-y: auto;
+      padding: 24px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* ── Page header ───────────────────────────────────────────── */
+    .page-header {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+    }
+    .page-title {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+    .page-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+    .page-actions {
+      margin-left: auto;
+      display: flex;
+      gap: 8px;
+    }
+    .btn {
+      padding: 6px 14px;
+      border-radius: var(--radius);
+      font-size: 12px;
+      font-weight: 500;
+      transition: background 0.1s;
+    }
+    .btn-ghost {
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+      border-color: var(--border-light);
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #3a8eef;
+    }
+
+    /* ── Summary strip ─────────────────────────────────────────── */
+    .summary-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+    .summary-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .summary-card.alert {
+      border-color: var(--overdue);
+      background: var(--overdue-bg);
+    }
+    .summary-card.warn {
+      border-color: var(--due-soon);
+      background: var(--due-soon-bg);
+    }
+    .summary-value {
+      font-family: var(--font-mono);
+      font-size: 28px;
+      font-weight: 500;
+      line-height: 1;
+    }
+    .summary-card.alert .summary-value { color: var(--overdue); }
+    .summary-card.warn .summary-value { color: var(--due-soon); }
+    .summary-card .summary-value { color: var(--text-primary); }
+    .summary-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-family: var(--font-mono);
+    }
+
+    /* ── Item groups ───────────────────────────────────────────── */
+    .item-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    .group-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0 6px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2px;
+    }
+    .group-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .group-label.overdue { color: var(--overdue); }
+    .group-label.due-soon { color: var(--due-soon); }
+    .group-label.on-track { color: var(--on-track); }
+    .group-label.no-date { color: var(--no-date); }
+    .group-count {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    /* ── Action item row ───────────────────────────────────────── */
+    .item-row {
+      display: grid;
+      grid-template-columns: 20px 1fr auto auto auto;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 8px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: background 0.1s;
+      position: relative;
+    }
+    .item-row:hover {
+      background: var(--bg-hover);
+    }
+    .item-row.overdue { background: var(--overdue-bg); }
+    .item-row.overdue:hover { background: #271519; }
+
+    .item-indicator {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      justify-self: center;
+    }
+    .item-indicator.overdue { background: var(--overdue); }
+    .item-indicator.due-soon { background: var(--due-soon); }
+    .item-indicator.on-track { background: var(--on-track); }
+    .item-indicator.no-date { background: var(--no-date); }
+
+    .item-body {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .item-title {
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .item-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .item-series {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 280px;
+    }
+    .item-meeting {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .meta-sep {
+      color: var(--border-light);
+      font-size: 10px;
+    }
+
+    .item-due {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      white-space: nowrap;
+      text-align: right;
+    }
+    .item-due.overdue { color: var(--overdue); font-weight: 500; }
+    .item-due.due-soon { color: var(--due-soon); }
+    .item-due.on-track { color: var(--text-muted); }
+    .item-due.no-date { color: var(--text-muted); }
+
+    .item-priority {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 2px;
+      white-space: nowrap;
+    }
+    .priority-4 { background: #2a1010; color: var(--overdue); border: 1px solid #3a1515; }
+    .priority-3 { background: #1f1810; color: var(--due-soon); border: 1px solid #2e2210; }
+    .priority-2 { background: var(--bg-raised); color: var(--text-muted); border: 1px solid var(--border); }
+    .priority-1 { background: var(--bg-raised); color: var(--text-muted); border: 1px solid var(--border); }
+
+    .item-actions {
+      display: flex;
+      gap: 4px;
+      opacity: 0;
+      transition: opacity 0.1s;
+    }
+    .item-row:hover .item-actions { opacity: 1; }
+    .item-action-btn {
+      padding: 3px 8px;
+      border-radius: var(--radius);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      background: var(--bg-surface);
+      transition: all 0.1s;
+    }
+    .item-action-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+    .item-action-btn.done:hover {
+      border-color: var(--on-track);
+      color: var(--on-track);
+      background: var(--on-track-bg);
+    }
+
+    /* ── Context menu ──────────────────────────────────────────── */
+    .context-menu {
+      position: fixed;
+      background: var(--bg-raised);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-lg);
+      padding: 4px;
+      min-width: 180px;
+      z-index: 1000;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      display: none;
+    }
+    .context-menu.visible { display: block; }
+    .context-menu-section {
+      padding: 4px 8px 2px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+    .context-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: var(--radius);
+      font-size: 12px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: background 0.1s, color 0.1s;
+    }
+    .context-menu-item:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+    .context-menu-item.destructive {
+      color: var(--overdue);
+    }
+    .context-menu-item.destructive:hover {
+      background: var(--overdue-bg);
+    }
+    .context-menu-sep {
+      height: 1px;
+      background: var(--border);
+      margin: 4px 0;
+    }
+    .context-icon {
+      font-size: 13px;
+      width: 16px;
+      text-align: center;
+    }
+
+    /* ── Empty state ───────────────────────────────────────────── */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 20px;
+      gap: 12px;
+      color: var(--text-muted);
+    }
+    .empty-icon {
+      font-size: 32px;
+      opacity: 0.4;
+    }
+    .empty-text {
+      font-size: 13px;
+      font-family: var(--font-mono);
+    }
+
+    /* ── Scrollbar ─────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    /* ── Animations ────────────────────────────────────────────── */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .item-row {
+      animation: fadeIn 0.2s ease both;
+    }
+    .item-row:nth-child(1)  { animation-delay: 0.02s; }
+    .item-row:nth-child(2)  { animation-delay: 0.04s; }
+    .item-row:nth-child(3)  { animation-delay: 0.06s; }
+    .item-row:nth-child(4)  { animation-delay: 0.08s; }
+    .item-row:nth-child(5)  { animation-delay: 0.10s; }
+    .item-row:nth-child(6)  { animation-delay: 0.12s; }
+    .item-row:nth-child(7)  { animation-delay: 0.14s; }
+    .item-row:nth-child(8)  { animation-delay: 0.16s; }
+  </style>
+</head>
+
+<body>
+<div class="shell">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="topbar-logo">KEEPER <span>/ docket</span></div>
+    <div class="topbar-sep"></div>
+    <div class="topbar-context" id="topbar-context">my attention</div>
+    <div class="topbar-right">
+      <span class="topbar-user">Dev User (Stub)</span>
+      <div class="topbar-avatar">DU</div>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="nav-section">Workspace</div>
+
+    <div class="nav-item active" onclick="navigate('attention')">
+      <span class="nav-icon">⊙</span>
+      My Attention
+      <span class="nav-badge">3</span>
+    </div>
+
+    <div class="nav-item" onclick="navigate('series')">
+      <span class="nav-icon">◫</span>
+      Series
+      <span class="nav-badge neutral">4</span>
+    </div>
+
+    <div class="nav-section">Quick Access</div>
+
+    <div class="nav-item" onclick="navigate('recent')">
+      <span class="nav-icon">◷</span>
+      Recent Meetings
+    </div>
+
+    <div class="nav-item" onclick="navigate('mine')">
+      <span class="nav-icon">◈</span>
+      All My Items
+      <span class="nav-badge warn">7</span>
+    </div>
+
+    <div class="nav-section">Actions</div>
+
+    <div class="nav-item" onclick="navigate('new-series')">
+      <span class="nav-icon">+</span>
+      New Series
+    </div>
+
+    <div class="nav-item" onclick="navigate('submit')">
+      <span class="nav-icon">↑</span>
+      Submit Transcript
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-footer-text">
+        keeper v0.1.0<br>
+        docket api · connected
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main class="main" id="main-content">
+
+    <!-- Page header -->
+    <div class="page-header">
+      <h1 class="page-title">My Attention</h1>
+      <span class="page-subtitle">Wed 26 Feb 2026 · 09:14</span>
+      <div class="page-actions">
+        <button class="btn btn-ghost">Filter</button>
+        <button class="btn btn-ghost">Sort</button>
+      </div>
+    </div>
+
+    <!-- Summary strip -->
+    <div class="summary-strip">
+      <div class="summary-card alert">
+        <span class="summary-value">3</span>
+        <span class="summary-label">Overdue</span>
+      </div>
+      <div class="summary-card warn">
+        <span class="summary-value">4</span>
+        <span class="summary-label">Due this week</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-value">7</span>
+        <span class="summary-label">Open items</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-value">2</span>
+        <span class="summary-label">Active series</span>
+      </div>
+    </div>
+
+    <!-- Overdue group -->
+    <div class="item-group">
+      <div class="group-header">
+        <span class="group-label overdue">Overdue</span>
+        <span class="group-count">3 items</span>
+      </div>
+
+      <div class="item-row overdue"
+           onclick="openItem('a1')"
+           oncontextmenu="showContext(event, 'a1')">
+        <span class="item-indicator overdue"></span>
+        <div class="item-body">
+          <span class="item-title">Structural assessment report — phase 1 findings</span>
+          <div class="item-meta">
+            <span class="item-series">Bridge Project Kickoff</span>
+            <span class="meta-sep">·</span>
+            <span class="item-meeting">Feb 19</span>
+          </div>
+        </div>
+        <span class="item-priority priority-3">HIGH</span>
+        <span class="item-due overdue">7 days ago</span>
+        <div class="item-actions">
+          <button class="item-action-btn done" onclick="markDone(event,'a1')">✓ done</button>
+          <button class="item-action-btn" onclick="defer(event,'a1')">defer</button>
+        </div>
+      </div>
+
+      <div class="item-row overdue"
+           onclick="openItem('a2')"
+           oncontextmenu="showContext(event, 'a2')">
+        <span class="item-indicator overdue"></span>
+        <div class="item-body">
+          <span class="item-title">Submit permit applications to city planning office</span>
+          <div class="item-meta">
+            <span class="item-series">Bridge Project Kickoff</span>
+            <span class="meta-sep">·</span>
+            <span class="item-meeting">Feb 19</span>
+          </div>
+        </div>
+        <span class="item-priority priority-3">HIGH</span>
+        <span class="item-due overdue">3 days ago</span>
+        <div class="item-actions">
+          <button class="item-action-btn done" onclick="markDone(event,'a2')">✓ done</button>
+          <button class="item-action-btn" onclick="defer(event,'a2')">defer</button>
+        </div>
+      </div>
+
+      <div class="item-row overdue"
+           onclick="openItem('a3')"
+           oncontextmenu="showContext(event, 'a3')">
+        <span class="item-indicator overdue"></span>
+        <div class="item-body">
+          <span class="item-title">Send Q4 engagement summary to stakeholders</span>
+          <div class="item-meta">
+            <span class="item-series">Quarterly Review — Acme Corp</span>
+            <span class="meta-sep">·</span>
+            <span class="item-meeting">Feb 20</span>
+          </div>
+        </div>
+        <span class="item-priority priority-4">CRITICAL</span>
+        <span class="item-due overdue">2 days ago</span>
+        <div class="item-actions">
+          <button class="item-action-btn done" onclick="markDone(event,'a3')">✓ done</button>
+          <button class="item-action-btn" onclick="defer(event,'a3')">defer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Due this week group -->
+    <div class="item-group">
+      <div class="group-header">
+        <span class="group-label due-soon">Due this week</span>
+        <span class="group-count">4 items</span>
+      </div>
+
+      <div class="item-row"
+           onclick="openItem('a4')"
+           oncontextmenu="showContext(event, 'a4')">
+        <span class="item-indicator due-soon"></span>
+        <div class="item-body">
+          <span class="item-title">Coordinate meeting with city engineer re: foundation specs</span>
+          <div class="item-meta">
+            <span class="item-series">Bridge Project Kickoff</span>
+            <span class="meta-sep">·</span>
+            <span class="item-meeting">Feb 26</span>
+          </div>
+        </div>
+        <span class="item-priority priority-2">MED</span>
+        <span class="item-due due-soon">tomorrow</span>
+        <div class="item-actions">
+          <button class="item-action-btn done" onclick="markDone(event,'a4')">✓ done</button>
+          <button class="item-action-btn" onclick="defer(event,'a4')">defer</button>
+        </div>
+      </div>
+
+      <div class="item-row"
+           onclick="openItem('a5')"
+           oncontextmenu="showContext(event, 'a5')">
+        <span class="item-indicator due-soon"></span>
+        <div class="item-body">
+          <span class="item-title">Review vendor proposals and shortlist to three</span>
+          <div class="item-meta">
+            <span class="item-series">Quarterly Review — Acme Corp</span>
+            <span class="meta-sep">·</span>
+            <span class="item-meeting">Feb 20</span>
+          </div>
+        </div>
+        <span class="item-priority priority-3">HIGH</span>
+        <span class="item-due due-soon">in 2 days</span>
+        <div class="item-actions">
+          <button class="item-action-btn done" onclick="markDone(event,'a5')">✓ done</button>
+          <button class="item-action-btn" onclick="defer(event,'a5')">defer</button>
+        </div>
+      </div>
+
+      <div class="item-row"
+           onclick="openItem('a6')"
+           oncontextmenu="showContext(event, 'a6')">
+        <span class="item-indicator due-soon"></span>
+        <div class="item-body">
+          <span class="item-title">Draft revised project timeline with milestone dates</span>
+          <div class="item-meta">
+            <span class="item-series">Bridge Project Kickoff</span>
+            <span class="meta-sep">·</span>
+            <span class="item-meeting">Feb 26</span>
+          </div>
+        </div>
+        <span class="item-priority priority-2">MED</span>
+        <span class="item-due due-soon">in 3 days</span>
+        <div class="item-actions">
+          <button class="item-action-btn done" onclick="markDone(event,'a6')">✓ done</button>
+          <button class="item-action-btn" onclick="defer(event,'a6')">defer</button>
+        </div>
+      </div>
+
+      <div class="item-row"
+           onclick="openItem('a7')"
+           oncontextmenu="showContext(event, 'a7')">
+        <span class="item-indicator due-soon"></span>
+        <div class="item-body">
+          <span class="item-title">Confirm insurance coverage for construction phase</span>
+          <div class="item-meta">
+            <span class="item-series">Bridge Project Kickoff</span>
+            <span class="meta-sep">·</span>
+            <span class="item-meeting">Feb 26</span>
+          </div>
+        </div>
+        <span class="item-priority priority-2">MED</span>
+        <span class="item-due due-soon">Fri 28 Feb</span>
+        <div class="item-actions">
+          <button class="item-action-btn done" onclick="markDone(event,'a7')">✓ done</button>
+          <button class="item-action-btn" onclick="defer(event,'a7')">defer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- No due date group -->
+    <div class="item-group">
+      <div class="group-header">
+        <span class="group-label no-date">No due date</span>
+        <span class="group-count">1 item</span>
+      </div>
+
+      <div class="item-row"
+           onclick="openItem('a8')"
+           oncontextmenu="showContext(event, 'a8')">
+        <span class="item-indicator no-date"></span>
+        <div class="item-body">
+          <span class="item-title">Research alternative bridge deck materials</span>
+          <div class="item-meta">
+            <span class="item-series">Bridge Project Kickoff</span>
+            <span class="meta-sep">·</span>
+            <span class="item-meeting">Feb 26</span>
+          </div>
+        </div>
+        <span class="item-priority priority-1">LOW</span>
+        <span class="item-due no-date">no date</span>
+        <div class="item-actions">
+          <button class="item-action-btn done" onclick="markDone(event,'a8')">✓ done</button>
+          <button class="item-action-btn" onclick="defer(event,'a8')">defer</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Context menu -->
+<div class="context-menu" id="context-menu">
+  <div class="context-menu-section">Actions</div>
+  <div class="context-menu-item" onclick="ctxAction('done')">
+    <span class="context-icon">✓</span> Mark done
+  </div>
+  <div class="context-menu-item" onclick="ctxAction('defer')">
+    <span class="context-icon">→</span> Defer
+  </div>
+  <div class="context-menu-item" onclick="ctxAction('note')">
+    <span class="context-icon">✎</span> Add note
+  </div>
+  <div class="context-menu-sep"></div>
+  <div class="context-menu-section">Navigate</div>
+  <div class="context-menu-item" onclick="ctxAction('open')">
+    <span class="context-icon">⊞</span> Open item
+  </div>
+  <div class="context-menu-item" onclick="ctxAction('meeting')">
+    <span class="context-icon">◫</span> Go to meeting
+  </div>
+  <div class="context-menu-item" onclick="ctxAction('history')">
+    <span class="context-icon">◷</span> View history
+  </div>
+  <div class="context-menu-sep"></div>
+  <div class="context-menu-item destructive" onclick="ctxAction('abandon')">
+    <span class="context-icon">✕</span> Abandon
+  </div>
+</div>
+
+<script>
+  // ── Context menu ───────────────────────────────────────────────
+  let activeItemId = null;
+  const menu = document.getElementById('context-menu');
+
+  function showContext(e, itemId) {
+    e.preventDefault();
+    e.stopPropagation();
+    activeItemId = itemId;
+    menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
+    menu.style.top  = Math.min(e.clientY, window.innerHeight - 260) + 'px';
+    menu.classList.add('visible');
+  }
+
+  function ctxAction(action) {
+    menu.classList.remove('visible');
+    if (!activeItemId) return;
+    switch(action) {
+      case 'done':    markDone(null, activeItemId); break;
+      case 'defer':   defer(null, activeItemId); break;
+      case 'open':    openItem(activeItemId); break;
+      case 'meeting': alert('→ minutes/{id} (not yet built)'); break;
+      case 'history': alert('→ items/' + activeItemId + '/history (not yet built)'); break;
+      case 'note':    alert('Add note to ' + activeItemId + ' (not yet built)'); break;
+      case 'abandon': confirmAbandon(activeItemId); break;
+    }
+  }
+
+  document.addEventListener('click', () => menu.classList.remove('visible'));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') menu.classList.remove('visible');
+  });
+
+  // ── Item actions ───────────────────────────────────────────────
+  function markDone(e, itemId) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    const row = document.querySelector(`[onclick="openItem('${itemId}')"]`);
+    if (row) {
+      row.style.opacity = '0.3';
+      row.style.transition = 'opacity 0.3s';
+      setTimeout(() => row.remove(), 300);
+    }
+    // TODO: PATCH /action-items/{itemId} status=done via htmx
+    console.log('mark done:', itemId);
+  }
+
+  function defer(e, itemId) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    // TODO: PATCH /action-items/{itemId} status=deferred via htmx
+    console.log('defer:', itemId);
+    alert('Defer ' + itemId + ' — will connect to Docket API');
+  }
+
+  function confirmAbandon(itemId) {
+    const note = prompt('Reason for abandoning this item (required):');
+    if (note && note.trim()) {
+      // TODO: PATCH /action-items/{itemId} status=abandoned + note
+      console.log('abandon:', itemId, note);
+      alert('Abandoned — will connect to Docket API');
+    }
+  }
+
+  function openItem(itemId) {
+    // TODO: navigate to /items/{itemId}
+    console.log('open item:', itemId);
+    alert('→ /items/' + itemId + ' (not yet built)');
+  }
+
+  // ── Navigation ─────────────────────────────────────────────────
+  function navigate(page) {
+    document.getElementById('topbar-context').textContent = page.replace('-', ' ');
+    // TODO: load page content
+    alert('→ ' + page + ' (not yet built)');
+  }
+
+  // ── Clock ──────────────────────────────────────────────────────
+  function updateClock() {
+    const el = document.querySelector('.page-subtitle');
+    if (!el) return;
+    const now = new Date();
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const months = ['Jan','Feb','Mar','Apr','May','Jun',
+                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+    const d = days[now.getDay()];
+    const m = months[now.getMonth()];
+    const date = now.getDate();
+    const yr = now.getFullYear();
+    const h = String(now.getHours()).padStart(2,'0');
+    const min = String(now.getMinutes()).padStart(2,'0');
+    el.textContent = `${d} ${date} ${m} ${yr} · ${h}:${min}`;
+  }
+  updateClock();
+  setInterval(updateClock, 60000);
+</script>
+
+</body>
+</html>
