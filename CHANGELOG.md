@@ -71,10 +71,10 @@ The data model design highlighted several questions about "What are Minutes?" an
 
 ---
 
-## [2026-02-26] — Docket API Contract, State Machine and Workflow Testing
+## [2026-02-26] — Docket API Contract, State Machine and Workflow Testing, Start Keeper
 
 ### What happened
-I've been building out test suites to validate and verify that Docket does what we expect it to do. 
+Clause an I have been building out test suites to validate and verify that Docket does what we expect it to do. I've learned from other projects that AI, like people, doesn't like to write validation code. There's some justification for this; I've seen functions with 80 lines of validation code that precede the three lines of code that do the work of the function. This was the time to write them; before there's a lot of code that breaks when an API has to change. And they provide examples for others who want to use Docket stand-alone.
 
 - 41 state machine tests
 -  9 workflow tests
@@ -85,6 +85,9 @@ I've been building out test suites to validate and verify that Docket does what 
 
 - 167 tests, all green.
 
+- Keeper for Slack completed
+- 4 prototype web pages for Keeper Desktop client
+
 ### Why
 These test suites verify that the 38 endpoints do what we say they do, and they validate that what we said they do is the right thing to be doing. They also provide useful commentary about the design and provide examples.
 
@@ -93,8 +96,10 @@ The contract tests found four missing validations found that were fixed, two aut
 From Claude: "The contract tests caught real gaps — missing validation, wrong status codes, a carry-forward implementation that didn't match the intended design for human-deferred items. Those are exactly the kinds of bugs that would have been painful to diagnose from the Keeper side.
 Docket is solid. The API speaks the right language, the state machine is correct, the carry-forward audit trail works as designed, and the test suite gives anyone a clear green/red signal on the full surface."
 
+THe original plan was to implement Keeper on the Microsoft platform first. However, there are real costs to setting that up and it wasn't clear how much time it would take to get the first-article running. As a result, I shifted to the Python/Slack stack. It took less than than one hour from concept to parsing a transcript into Docket to put that version of Keeper together. But, once I had data from Keeper in Docket, the other half of the problem had to be addressed; how do I see the items that have been assigned to me. So, Clause and I got busy creating the prototype pages for the web client.
+
 ### What comes next
-- Start the Azure implementation for Keeper
+- Wire up the Keeper web client
 
 ---
 
