@@ -388,14 +388,16 @@ public record CreateActionItemRequest(
     DateOnly? DueDate,
     int Priority = 3,
     bool IsRecurring = false,
-    bool? AssignedInAbsentia = null);
+    bool? AssignedInAbsentia = null,
+    Guid? SourceActionItemId = null);
 
 public record UpdateActionItemRequest(
     string? Title,
     DateOnly? DueDate,
     int? Priority,
     string? Status,
-    bool? IsRecurring);
+    bool? IsRecurring,
+    Guid? SourceActionItemId = null);
 
 public record AppendNoteRequest(string Text);
 public record ApplyLabelRequest(Guid LabelId);
@@ -462,6 +464,7 @@ public static class ActionItemEndpoints
             Priority = request.Priority,
             IsRecurring = request.IsRecurring,
             AssignedInAbsentia = inAbsentia,
+            SourceActionItemId = request.SourceActionItemId,
             CreatedBy = currentUser.UserId
         };
 
@@ -501,6 +504,7 @@ public static class ActionItemEndpoints
         if (request.DueDate is not null) item.DueDate = request.DueDate;
         if (request.Priority.HasValue) item.Priority = request.Priority.Value;
         if (request.IsRecurring.HasValue) item.IsRecurring = request.IsRecurring.Value;
+        if (request.SourceActionItemId.HasValue) item.SourceActionItemId = request.SourceActionItemId.Value;
 
         if (request.Status is not null)
         {

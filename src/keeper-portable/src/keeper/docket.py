@@ -42,7 +42,26 @@ def get_series(series_id: str) -> dict:
         r.raise_for_status()
         return r.json()
 
+def list_series() -> list[dict]:
+    with _client() as c:
+        r = c.get("/series")
+        r.raise_for_status()
+        return r.json()
 
+def find_or_create_series(name: str, project: str | None = None) -> tuple[dict, bool]:
+    """
+    Returns (series, created).
+    Matches on exact name (case-insensitive). Creates if not found.
+    """
+    all_series = list_series()
+    match = next(
+        (s for s in all_series if s["name"].lower() == name.lower()),
+        None
+    )
+    if match:
+        return match, False
+    created = create_series(name=name, project=project)
+    return created, True
 # ── Minutes ───────────────────────────────────────────────────────
 
 def create_minutes(series_id: str, scheduled_for: str) -> dict:
@@ -82,6 +101,47 @@ def finalize_minutes(minutes_id: str) -> dict | None:
         return r.json()
 
 
+def list_minutes_for_series(series_id: str) -> list[dict]:
+    with _client() as c:
+        r = c.get(f"/series/{series_id}/minutes")
+        r.raise_for_status()
+        return r.json()
+
+def get_deferred_items_from_previous_minutes(series_id: str, current_minutes_id: str) -> list[dict]:
+    """
+    Find the most recent finalized Minutes in the series (excluding current),
+    return all Deferred action items from it with their full topic context.
+    """
+    all_minutes = list_minutes_for_series(series_id)
+    finalized = [
+        m for m in all_minutes
+        if m["status"] == "Finalized" and m["id"] != current_minutes_id
+    ]
+    if not finalized:
+        return []
+    # Most recent finalized
+    previous = max(finalized, key=lambda m: m["scheduledFor"])
+    previous_id = previous["id"]
+
+    # Fetch full topics with action items
+    with _client() as c:
+        r = c.get(f"/minutes/{previous_id}/topics")
+        r.raise_for_status()
+        topics = r.json()
+
+    deferred = []
+    for topic in topics:
+        for item in topic.get("actionItems", []):
+            if item["status"] == "Deferred":
+                deferred.append({
+                    "id": item["id"],
+                    "title": item["title"],
+                    "topicTitle": topic["title"],
+                    "dueDate": item.get("dueDate"),
+                    "responsibleId": item.get("responsibleId"),
+                })
+    return deferred
+
 # ── Topics ────────────────────────────────────────────────────────
 
 def create_topic(minutes_id: str, title: str,
@@ -100,7 +160,8 @@ def create_topic(minutes_id: str, title: str,
 def create_action_item(topic_id: str, title: str,
                        responsible_id: str,
                        due_date: str | None = None,
-                       priority: int = 2) -> dict:
+                       priority: int = 2,
+                       source_action_item_id: str | None = None) -> dict:
     with _client() as c:
         payload: dict[str, Any] = {
             "title": title,
@@ -109,10 +170,11 @@ def create_action_item(topic_id: str, title: str,
         }
         if due_date:
             payload["dueDate"] = due_date
+        if source_action_item_id:
+            payload["sourceActionItemId"] = source_action_item_id
         r = c.post(f"/topics/{topic_id}/action-items", json=payload)
         r.raise_for_status()
         return r.json()
-
 
 def update_action_item(action_item_id: str, **kwargs) -> dict:
     with _client() as c:
